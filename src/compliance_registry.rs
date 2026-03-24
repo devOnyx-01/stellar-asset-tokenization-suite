@@ -1,7 +1,8 @@
 use soroban_sdk::{
-    contract, contractimpl, Address, Env, Symbol, Vec, Map, BytesN, 
-    contracttype, contracterror
+    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec,
 };
+
+use crate::auth::assert_admin;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -16,17 +17,19 @@ pub enum ComplianceError {
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct KYCStatus {
     pub is_verified: bool,
-    pub verification_level: u32, // 1=Basic, 2=Enhanced, 3=Institutional
+    pub verification_level: u32,
     pub expiry_date: u64,
     pub jurisdiction: Symbol,
     pub is_accredited: bool,
-    pub risk_score: u32, // 1-5, 5=lowest risk
+    pub risk_score: u32,
     pub aml_flags: Vec<Symbol>,
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct TransferLimits {
     pub daily_limit: i128,
     pub monthly_limit: i128,
@@ -40,6 +43,7 @@ pub struct TransferLimits {
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct ComplianceRule {
     pub rule_id: Symbol,
     pub name: Symbol,
@@ -56,153 +60,179 @@ pub struct ComplianceRegistry;
 
 #[contractimpl]
 impl ComplianceRegistry {
-    /// Initialize the compliance registry
-    pub fn initialize(env: Env, admin: Address, kyc_required: bool, transfer_restrictions: bool) {
-        if env.storage().instance().has(&Symbol::new(&env, "initialized")) {
+    pub fn initialize(
+        env: Env,
+        auth: Address,
+        admin: Address,
+        kyc_required: bool,
+        transfer_restrictions: bool,
+    ) {
+        auth.require_auth();
+        if env
+            .storage()
+            .instance()
+            .has(&Symbol::new(&env, "initialized"))
+        {
             panic!("Registry already initialized");
         }
 
-        env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
-        env.storage().instance().set(&Symbol::new(&env, "kyc_required"), &kyc_required);
-        env.storage().instance().set(&Symbol::new(&env, "transfer_restrictions"), &transfer_restrictions);
-        env.storage().instance().set(&Symbol::new(&env, "initialized"), &true);
-        
-        // Initialize default compliance rules
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "admin"), &admin);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "kyc_required"), &kyc_required);
+        env.storage().instance().set(
+            &Symbol::new(&env, "transfer_restrictions"),
+            &transfer_restrictions,
+        );
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "initialized"), &true);
+
         let mut rules = Vec::<ComplianceRule>::new(&env);
-        
-        // Rule 144 compliance
+
+        let mut jur_us_144 = Vec::<Symbol>::new(&env);
+        jur_us_144.push_back(Symbol::new(&env, "US"));
+
         rules.push_back(ComplianceRule {
             rule_id: Symbol::new(&env, "rule_144"),
             name: Symbol::new(&env, "SEC Rule 144"),
             description: Symbol::new(&env, "Restricted securities resale limitations"),
             is_active: true,
-            jurisdictions: vec![&env, Symbol::new(&env, "US")],
+            jurisdictions: jur_us_144,
             min_verification_level: 2,
             requires_accreditation: true,
-            max_amount: 1000000, // $1M limit per 6 months
+            max_amount: 1000000,
         });
 
-        // Reg D compliance
+        let mut jur_us_d = Vec::<Symbol>::new(&env);
+        jur_us_d.push_back(Symbol::new(&env, "US"));
+
         rules.push_back(ComplianceRule {
             rule_id: Symbol::new(&env, "reg_d"),
             name: Symbol::new(&env, "Regulation D"),
             description: Symbol::new(&env, "Private placement exemptions"),
             is_active: true,
-            jurisdictions: vec![&env, Symbol::new(&env, "US")],
+            jurisdictions: jur_us_d,
             min_verification_level: 2,
             requires_accreditation: true,
-            max_amount: 50000000, // $50M limit
+            max_amount: 50000000,
         });
 
-        // Reg S compliance
+        let mut jur_non_us = Vec::<Symbol>::new(&env);
+        jur_non_us.push_back(Symbol::new(&env, "EU"));
+        jur_non_us.push_back(Symbol::new(&env, "UK"));
+        jur_non_us.push_back(Symbol::new(&env, "JP"));
+
         rules.push_back(ComplianceRule {
             rule_id: Symbol::new(&env, "reg_s"),
             name: Symbol::new(&env, "Regulation S"),
             description: Symbol::new(&env, "Non-US offerings"),
             is_active: true,
-            jurisdictions: vec![&env, Symbol::new(&env, "EU"), Symbol::new(&env, "UK"), Symbol::new(&env, "JP")],
+            jurisdictions: jur_non_us,
             min_verification_level: 1,
             requires_accreditation: false,
-            max_amount: i128::MAX, // No limit for non-US
+            max_amount: i128::MAX,
         });
 
-        env.storage().instance().set(&Symbol::new(&env, "compliance_rules"), &rules);
-        env.storage().instance().set(&Symbol::new(&env, "blacklist"), &Vec::<Address>::new(&env));
-        env.storage().instance().set(&Symbol::new(&env, "whitelist"), &Vec::<Address>::new(&env));
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "compliance_rules"), &rules);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "blacklist"), &Vec::<Address>::new(&env));
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "whitelist"), &Vec::<Address>::new(&env));
+        env.storage().instance().set(
+            &Symbol::new(&env, "xfer_lim"),
+            &Map::<Address, TransferLimits>::new(&env),
+        );
     }
 
-    /// Add or update KYC status for a user
-    pub fn update_kyc_status(env: Env, user: Address, kyc_status: KYCStatus) {
-        let admin: Address = env.storage().instance()
+    pub fn update_kyc_status(env: Env, auth: Address, user: Address, kyc_status: KYCStatus) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can update KYC status");
-        }
+        assert_admin(&auth, &admin);
 
         env.storage().instance().set(&user, &kyc_status);
 
-        // Emit KYC update event
         env.events().publish(
             (Symbol::new(&env, "kyc_updated"), user),
             (kyc_status.is_verified, kyc_status.verification_level),
         );
     }
 
-    /// Get KYC status for a user
     pub fn get_kyc_status(env: Env, user: Address) -> KYCStatus {
-        env.storage().instance()
-            .get(&user)
-            .unwrap_or(KYCStatus {
-                is_verified: false,
-                verification_level: 0,
-                expiry_date: 0,
-                jurisdiction: Symbol::new(&env, "UNKNOWN"),
-                is_accredited: false,
-                risk_score: 5, // Highest risk by default
-                aml_flags: Vec::new(&env),
-            })
+        env.storage().instance().get(&user).unwrap_or(KYCStatus {
+            is_verified: false,
+            verification_level: 0,
+            expiry_date: 0,
+            jurisdiction: Symbol::new(&env, "UNKNOWN"),
+            is_accredited: false,
+            risk_score: 5,
+            aml_flags: Vec::new(&env),
+        })
     }
 
-    /// Add address to blacklist
-    pub fn add_to_blacklist(env: Env, address: Address, reason: Symbol) {
-        let admin: Address = env.storage().instance()
+    pub fn add_to_blacklist(env: Env, auth: Address, address: Address, reason: Symbol) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can manage blacklist");
-        }
+        assert_admin(&auth, &admin);
 
-        let mut blacklist: Vec<Address> = env.storage().instance()
+        let mut blacklist: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "blacklist"))
             .unwrap_or(Vec::new(&env));
 
         blacklist.push_back(address.clone());
-        env.storage().instance().set(&Symbol::new(&env, "blacklist"), &blacklist);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "blacklist"), &blacklist);
 
-        // Store blacklist reason
-        let reason_key = Symbol::new(&env, &format!("blacklist_reason_{}", address.clone()));
-        env.storage().instance().set(&reason_key, &reason);
-
-        env.events().publish(
-            (Symbol::new(&env, "blacklisted"), address),
-            reason,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "blacklisted"), address), reason);
     }
 
-    /// Remove address from blacklist
-    pub fn remove_from_blacklist(env: Env, address: Address) {
-        let admin: Address = env.storage().instance()
+    pub fn remove_from_blacklist(env: Env, auth: Address, address: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can manage blacklist");
-        }
+        assert_admin(&auth, &admin);
 
-        let mut blacklist: Vec<Address> = env.storage().instance()
+        let blacklist: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "blacklist"))
             .unwrap_or(Vec::new(&env));
 
-        let mut found = false;
         let mut new_blacklist = Vec::<Address>::new(&env);
+        let mut found = false;
         for addr in blacklist.iter() {
-            if addr == address {
+            if addr.clone() == address {
                 found = true;
             } else {
-                new_blacklist.push_back(addr);
+                new_blacklist.push_back(addr.clone());
             }
         }
 
         if found {
-            env.storage().instance().set(&Symbol::new(&env, "blacklist"), &new_blacklist);
-            
-            // Remove blacklist reason
-            let reason_key = Symbol::new(&env, &format!("blacklist_reason_{}", address));
-            env.storage().instance().remove(&reason_key);
-
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "blacklist"), &new_blacklist);
             env.events().publish(
                 (Symbol::new(&env, "unblacklisted"), address),
                 Symbol::new(&env, "removed"),
@@ -210,22 +240,25 @@ impl ComplianceRegistry {
         }
     }
 
-    /// Add address to whitelist
-    pub fn add_to_whitelist(env: Env, address: Address) {
-        let admin: Address = env.storage().instance()
+    pub fn add_to_whitelist(env: Env, auth: Address, address: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can manage whitelist");
-        }
+        assert_admin(&auth, &admin);
 
-        let mut whitelist: Vec<Address> = env.storage().instance()
+        let mut whitelist: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "whitelist"))
             .unwrap_or(Vec::new(&env));
 
         whitelist.push_back(address.clone());
-        env.storage().instance().set(&Symbol::new(&env, "whitelist"), &whitelist);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "whitelist"), &whitelist);
 
         env.events().publish(
             (Symbol::new(&env, "whitelisted"), address),
@@ -233,32 +266,35 @@ impl ComplianceRegistry {
         );
     }
 
-    /// Remove address from whitelist
-    pub fn remove_from_whitelist(env: Env, address: Address) {
-        let admin: Address = env.storage().instance()
+    pub fn remove_from_whitelist(env: Env, auth: Address, address: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can manage whitelist");
-        }
+        assert_admin(&auth, &admin);
 
-        let mut whitelist: Vec<Address> = env.storage().instance()
+        let whitelist: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "whitelist"))
             .unwrap_or(Vec::new(&env));
 
-        let mut found = false;
         let mut new_whitelist = Vec::<Address>::new(&env);
+        let mut found = false;
         for addr in whitelist.iter() {
-            if addr == address {
+            if addr.clone() == address {
                 found = true;
             } else {
-                new_whitelist.push_back(addr);
+                new_whitelist.push_back(addr.clone());
             }
         }
 
         if found {
-            env.storage().instance().set(&Symbol::new(&env, "whitelist"), &new_whitelist);
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "whitelist"), &new_whitelist);
             env.events().publish(
                 (Symbol::new(&env, "unwhitelisted"), address),
                 Symbol::new(&env, "removed"),
@@ -266,42 +302,43 @@ impl ComplianceRegistry {
         }
     }
 
-    /// Check if an address is compliant for transfers
     pub fn check_compliance(env: Env, from: Address, to: Address, amount: i128) -> bool {
-        let kyc_required: bool = env.storage().instance()
+        let kyc_required: bool = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "kyc_required"))
             .unwrap_or(true);
 
-        // Check blacklist
-        let blacklist: Vec<Address> = env.storage().instance()
+        let blacklist: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "blacklist"))
             .unwrap_or(Vec::new(&env));
 
         for addr in blacklist.iter() {
-            if addr == from || addr == to {
+            if addr.clone() == from || addr.clone() == to {
                 return false;
             }
         }
 
-        // Check whitelist if KYC is required
         if kyc_required {
-            let whitelist: Vec<Address> = env.storage().instance()
+            let whitelist: Vec<Address> = env
+                .storage()
+                .instance()
                 .get(&Symbol::new(&env, "whitelist"))
                 .unwrap_or(Vec::new(&env));
 
-            let from_whitelisted = whitelist.iter().any(|addr| addr == &from);
-            let to_whitelisted = whitelist.iter().any(|addr| addr == &to);
+            let from_whitelisted = whitelist.iter().any(|a| a.clone() == from);
+            let to_whitelisted = whitelist.iter().any(|a| a.clone() == to);
 
-            if !from_whelisted || !to_whitelisted {
-                // Check KYC status if not whitelisted
-                let from_kyc = self.get_kyc_status(env, from.clone());
-                let to_kyc = self.get_kyc_status(env, to.clone());
+            if !from_whitelisted || !to_whitelisted {
+                let from_kyc = Self::get_kyc_status(env.clone(), from.clone());
+                let to_kyc = Self::get_kyc_status(env.clone(), to.clone());
 
                 if !from_kyc.is_verified || !to_kyc.is_verified {
                     return false;
                 }
 
-                // Check KYC expiry
                 let current_time = env.ledger().timestamp();
                 if from_kyc.expiry_date < current_time || to_kyc.expiry_date < current_time {
                     return false;
@@ -309,13 +346,61 @@ impl ComplianceRegistry {
             }
         }
 
-        // Check transfer limits if enabled
-        let transfer_restrictions: bool = env.storage().instance()
+        let transfer_restrictions: bool = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "transfer_restrictions"))
             .unwrap_or(false);
 
-        if transfer_restrictions {
-            if !self.check_transfer_limits(env, from.clone(), amount) {
+        if transfer_restrictions && !Self::check_transfer_limits(env.clone(), from.clone(), amount)
+        {
+            return false;
+        }
+
+        if !Self::evaluate_regulatory_rules(env.clone(), from.clone(), to.clone(), amount) {
+            return false;
+        }
+
+        true
+    }
+
+    fn evaluate_regulatory_rules(env: Env, from: Address, to: Address, amount: i128) -> bool {
+        let rules: Vec<ComplianceRule> = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "compliance_rules"))
+            .unwrap_or(Vec::new(&env));
+
+        let from_kyc = Self::get_kyc_status(env.clone(), from);
+        let to_kyc = Self::get_kyc_status(env.clone(), to);
+        let from_jurisdiction = from_kyc.jurisdiction.clone();
+        let to_jurisdiction = to_kyc.jurisdiction.clone();
+
+        for rule in rules.iter() {
+            if !rule.is_active {
+                continue;
+            }
+
+            if !Self::rule_applies_to_transfer(
+                &env,
+                &rule,
+                from_jurisdiction.clone(),
+                to_jurisdiction.clone(),
+            ) {
+                continue;
+            }
+
+            if from_kyc.verification_level < rule.min_verification_level
+                || to_kyc.verification_level < rule.min_verification_level
+            {
+                return false;
+            }
+
+            if rule.requires_accreditation && (!from_kyc.is_accredited || !to_kyc.is_accredited) {
+                return false;
+            }
+
+            if amount > rule.max_amount {
                 return false;
             }
         }
@@ -323,94 +408,163 @@ impl ComplianceRegistry {
         true
     }
 
-    /// Check transfer limits for a user
+    fn rule_applies_to_transfer(
+        env: &Env,
+        rule: &ComplianceRule,
+        from_jurisdiction: Symbol,
+        to_jurisdiction: Symbol,
+    ) -> bool {
+        for j in rule.jurisdictions.iter() {
+            if j == from_jurisdiction || j == to_jurisdiction {
+                return true;
+            }
+        }
+        let unknown = Symbol::new(env, "UNKNOWN");
+        if from_jurisdiction == unknown || to_jurisdiction == unknown {
+            return rule.jurisdictions.len() > 0;
+        }
+        false
+    }
+
+    pub fn check_outbound_participant(env: Env, participant: Address, amount: i128) -> bool {
+        let blacklist: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "blacklist"))
+            .unwrap_or(Vec::new(&env));
+
+        for addr in blacklist.iter() {
+            if addr.clone() == participant {
+                return false;
+            }
+        }
+
+        let kyc_required: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "kyc_required"))
+            .unwrap_or(true);
+
+        if kyc_required {
+            let kyc = Self::get_kyc_status(env.clone(), participant.clone());
+            if !kyc.is_verified {
+                return false;
+            }
+            let current_time = env.ledger().timestamp();
+            if kyc.expiry_date < current_time {
+                return false;
+            }
+        }
+
+        let transfer_restrictions: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "transfer_restrictions"))
+            .unwrap_or(false);
+
+        if transfer_restrictions
+            && !Self::check_transfer_limits(env.clone(), participant.clone(), amount)
+        {
+            return false;
+        }
+
+        true
+    }
+
     pub fn check_transfer_limits(env: Env, user: Address, amount: i128) -> bool {
-        let limits_key = Symbol::new(&env, &format!("limits_{}", user));
-        let mut limits: TransferLimits = env.storage().instance()
-            .get(&limits_key)
-            .unwrap_or(TransferLimits {
-                daily_limit: 10000,
-                monthly_limit: 100000,
-                annual_limit: 1000000,
-                remaining_daily: 10000,
-                remaining_monthly: 100000,
-                remaining_annual: 1000000,
-                last_reset_daily: 0,
-                last_reset_monthly: 0,
-                last_reset_annual: 0,
-            });
+        let map_key = Symbol::new(&env, "xfer_lim");
+        let mut map: Map<Address, TransferLimits> = env
+            .storage()
+            .instance()
+            .get(&map_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut limits: TransferLimits = map.get(user.clone()).unwrap_or(TransferLimits {
+            daily_limit: 10000,
+            monthly_limit: 100000,
+            annual_limit: 1000000,
+            remaining_daily: 10000,
+            remaining_monthly: 100000,
+            remaining_annual: 1000000,
+            last_reset_daily: 0,
+            last_reset_monthly: 0,
+            last_reset_annual: 0,
+        });
 
         let current_time = env.ledger().timestamp();
         let day_in_seconds = 86400;
         let month_in_seconds = 30 * day_in_seconds;
         let year_in_seconds = 365 * day_in_seconds;
 
-        // Reset daily limit if needed
         if current_time - limits.last_reset_daily >= day_in_seconds {
             limits.remaining_daily = limits.daily_limit;
             limits.last_reset_daily = current_time;
         }
 
-        // Reset monthly limit if needed
         if current_time - limits.last_reset_monthly >= month_in_seconds {
             limits.remaining_monthly = limits.monthly_limit;
             limits.last_reset_monthly = current_time;
         }
 
-        // Reset annual limit if needed
         if current_time - limits.last_reset_annual >= year_in_seconds {
             limits.remaining_annual = limits.annual_limit;
             limits.last_reset_annual = current_time;
         }
 
-        // Check if amount exceeds limits
-        if amount > limits.remaining_daily || 
-           amount > limits.remaining_monthly || 
-           amount > limits.remaining_annual {
+        if amount > limits.remaining_daily
+            || amount > limits.remaining_monthly
+            || amount > limits.remaining_annual
+        {
             return false;
         }
 
-        // Update remaining limits
         limits.remaining_daily -= amount;
         limits.remaining_monthly -= amount;
         limits.remaining_annual -= amount;
 
-        env.storage().instance().set(&limits_key, &limits);
+        map.set(user, limits);
+        env.storage().instance().set(&map_key, &map);
         true
     }
 
-    /// Set transfer limits for a user
-    pub fn set_transfer_limits(env: Env, user: Address, limits: TransferLimits) {
-        let admin: Address = env.storage().instance()
+    pub fn set_transfer_limits(env: Env, auth: Address, user: Address, limits: TransferLimits) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can set transfer limits");
-        }
+        assert_admin(&auth, &admin);
 
-        let limits_key = Symbol::new(&env, &format!("limits_{}", user));
-        env.storage().instance().set(&limits_key, &limits);
+        let map_key = Symbol::new(&env, "xfer_lim");
+        let mut map: Map<Address, TransferLimits> = env
+            .storage()
+            .instance()
+            .get(&map_key)
+            .unwrap_or(Map::new(&env));
+        map.set(user, limits);
+        env.storage().instance().set(&map_key, &map);
     }
 
-    /// Get all compliance rules
     pub fn get_compliance_rules(env: Env) -> Vec<ComplianceRule> {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&Symbol::new(&env, "compliance_rules"))
             .unwrap_or(Vec::new(&env))
     }
 
-    /// Update compliance rule
-    pub fn update_compliance_rule(env: Env, rule: ComplianceRule) {
-        let admin: Address = env.storage().instance()
+    pub fn update_compliance_rule(env: Env, auth: Address, rule: ComplianceRule) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Registry not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can update compliance rules");
-        }
+        assert_admin(&auth, &admin);
 
-        let mut rules: Vec<ComplianceRule> = env.storage().instance()
+        let rules: Vec<ComplianceRule> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "compliance_rules"))
             .unwrap_or(Vec::new(&env));
 
@@ -418,15 +572,17 @@ impl ComplianceRegistry {
         let mut new_rules = Vec::<ComplianceRule>::new(&env);
         for existing_rule in rules.iter() {
             if existing_rule.rule_id == rule.rule_id {
-                new_rules.push_back(rule);
+                new_rules.push_back(rule.clone());
                 found = true;
             } else {
-                new_rules.push_back(existing_rule);
+                new_rules.push_back(existing_rule.clone());
             }
         }
 
         if found {
-            env.storage().instance().set(&Symbol::new(&env, "compliance_rules"), &new_rules);
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "compliance_rules"), &new_rules);
         }
     }
 }

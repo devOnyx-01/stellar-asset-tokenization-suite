@@ -5,16 +5,21 @@
  * using the Stellar RWA Suite with comprehensive custody verification.
  */
 
-import { 
-  StellarRWASDK, 
-  createStellarRWASDK, 
-  AssetType, 
+import {
+  StellarRWASDK,
+  createStellarRWASDK,
+  AssetType,
   Currency,
-  VerificationLevel
+  VerificationLevel,
+  Address,
 } from '../sdk/src';
 
 // Configuration for the example
 const NETWORK = 'testnet';
+/** Deploy RWA token WASM first, then set this contract ID. */
+const EXAMPLE_RWA_TOKEN_CONTRACT = new Address(
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
+);
 const GOLD_OUNCES = '1000'; // 1000 ounces of gold
 const GOLD_VALUE_PER_OUNCE = '2000'; // $2000 per ounce
 const TOTAL_GOLD_VALUE = (parseFloat(GOLD_OUNCES) * parseFloat(GOLD_VALUE_PER_OUNCE)).toString();
@@ -70,6 +75,7 @@ async function commodityVaultTokenizationExample() {
     // Step 4: Deploy the commodity token
     console.log('🪙 Step 4: Deploying Gold-Backed Token...');
     const tokenDeployment = await sdk.assetFactory.deployRWAToken(vaultOperator, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'Gold Vault Token',
       symbol: 'GVT',
       totalSupply: GOLD_OUNCES, // 1 token = 1 ounce of gold

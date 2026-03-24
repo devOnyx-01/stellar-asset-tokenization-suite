@@ -5,8 +5,6 @@ edition = "2021"
 
 [dependencies]
 soroban-sdk = "22.0.0"
-soroban-token-contract = "22.0.0"
-soroban-sdk-macros = "22.0.0"
 
 [dev-dependencies]
 soroban-sdk = { version = "22.0.0", features = ["testutils"] }

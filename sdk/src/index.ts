@@ -1,4 +1,5 @@
 // Main SDK exports
+export { Address } from 'stellar-sdk';
 import { AssetFactory } from './assetFactory';
 import { TokenClient } from './tokenClient';
 import { DividendClient } from './dividendClient';
