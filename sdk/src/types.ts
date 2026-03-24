@@ -247,6 +247,8 @@ export interface TransactionOptions {
 }
 
 export interface DeploymentOptions {
+  /** Soroban contract address of the already-deployed RWA token WASM (linked by the factory). */
+  tokenContract: Address;
   name: string;
   symbol: string;
   totalSupply: string;

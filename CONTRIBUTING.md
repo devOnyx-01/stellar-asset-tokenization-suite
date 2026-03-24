@@ -108,21 +108,17 @@ stellar-asset-tokenization-suite/
 - Include unit tests for all public functions
 
 ```rust
-/// Deploys a new RWA token contract
-/// 
-/// # Arguments
-/// * `asset_name` - The name of the asset
-/// * `asset_symbol` - The trading symbol
-/// * `total_supply` - Total token supply
-/// 
-/// # Returns
-/// The address of the deployed token contract
-pub fn deploy_rwa_token(
-    env: Env,
-    asset_name: Symbol,
-    asset_symbol: Symbol,
-    total_supply: i128,
-) -> Address {
+/// Bundled args for factory deployment (Soroban limits exported functions to 10 parameters).
+#[contracttype]
+pub struct RwaDeploySpec {
+    pub token_contract: Address,
+    pub asset_name: Symbol,
+    // ... remaining fields: asset_symbol, total_supply, decimals, asset_type,
+    // metadata, compliance_registry, dividend_distributor
+}
+
+/// Link and initialize an already-deployed RWA token WASM via the factory.
+pub fn deploy_rwa_token(env: Env, auth: Address, spec: RwaDeploySpec) -> Address {
     // Implementation
 }
 ```

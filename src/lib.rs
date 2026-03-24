@@ -1,93 +1,93 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec, Map, BytesN};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, Symbol, Vec};
 
 mod asset_factory;
-mod rwa_token;
+mod auth;
 mod compliance_registry;
-mod dividend_distributor;
-mod secondary_market;
 mod custody_validator;
+mod dividend_distributor;
+mod rwa_token;
+mod secondary_market;
 
-use asset_factory::AssetFactory;
-use rwa_token::RWAToken;
-use compliance_registry::ComplianceRegistry;
-use dividend_distributor::DividendDistributor;
-use secondary_market::SecondaryMarket;
-use custody_validator::CustodyValidator;
+use asset_factory::AssetFactoryClient;
+use compliance_registry::ComplianceRegistryClient;
+use custody_validator::CustodyValidatorClient;
+use dividend_distributor::DividendDistributorClient;
+use secondary_market::SecondaryMarketClient;
+
+/// Bundled arguments for RWA deployment (Soroban exports allow at most 10 function parameters).
+#[contracttype]
+#[derive(Clone)]
+pub struct RwaDeploySpec {
+    pub token_contract: Address,
+    pub asset_name: Symbol,
+    pub asset_symbol: Symbol,
+    pub total_supply: i128,
+    pub decimals: u32,
+    pub asset_type: Symbol,
+    pub metadata: Map<Symbol, Symbol>,
+    pub compliance_registry: Address,
+    pub dividend_distributor: Address,
+}
 
 #[contract]
 pub struct StellarRWASuite;
 
 #[contractimpl]
 impl StellarRWASuite {
-    /// Deploy a new RWA token contract
+    /// Deploy / initialize an RWA token at `spec.token_contract` (deploy WASM separately, then call this).
     pub fn deploy_rwa_token(
         env: Env,
+        auth: Address,
         asset_factory: Address,
-        asset_name: Symbol,
-        asset_symbol: Symbol,
-        total_supply: i128,
-        decimals: u32,
-        asset_type: Symbol,
-        metadata: Map<Symbol, Symbol>,
-        compliance_registry: Address,
-        dividend_distributor: Address,
+        spec: RwaDeploySpec,
     ) -> Address {
-        let factory = AssetFactory::new(env, asset_factory);
-        factory.deploy_rwa_token(
-            asset_name,
-            asset_symbol,
-            total_supply,
-            decimals,
-            asset_type,
-            metadata,
-            compliance_registry,
-            dividend_distributor,
-        )
+        let factory = AssetFactoryClient::new(&env, &asset_factory);
+        factory.deploy_rwa_token(&auth, &spec)
     }
 
-    /// Initialize compliance registry
     pub fn init_compliance_registry(
         env: Env,
+        auth: Address,
         registry: Address,
         admin: Address,
         kyc_required: bool,
         transfer_restrictions: bool,
     ) {
-        let compliance = ComplianceRegistry::new(env, registry);
-        compliance.initialize(admin, kyc_required, transfer_restrictions);
+        let c = ComplianceRegistryClient::new(&env, &registry);
+        c.initialize(&auth, &admin, &kyc_required, &transfer_restrictions);
     }
 
-    /// Initialize dividend distributor
     pub fn init_dividend_distributor(
         env: Env,
+        auth: Address,
         distributor: Address,
         admin: Address,
         supported_currencies: Vec<Symbol>,
     ) {
-        let dividend = DividendDistributor::new(env, distributor);
-        dividend.initialize(admin, supported_currencies);
+        let c = DividendDistributorClient::new(&env, &distributor);
+        c.initialize(&auth, &admin, &supported_currencies);
     }
 
-    /// Initialize secondary market
     pub fn init_secondary_market(
         env: Env,
+        auth: Address,
         market: Address,
         admin: Address,
         fee_rate: i64,
         min_order_size: i128,
     ) {
-        let market_contract = SecondaryMarket::new(env, market);
-        market_contract.initialize(admin, fee_rate, min_order_size);
+        let c = SecondaryMarketClient::new(&env, &market);
+        c.initialize(&auth, &admin, &fee_rate, &min_order_size);
     }
 
-    /// Initialize custody validator
     pub fn init_custody_validator(
         env: Env,
+        auth: Address,
         validator: Address,
         admin: Address,
         oracle_addresses: Vec<Address>,
     ) {
-        let custody = CustodyValidator::new(env, validator);
-        custody.initialize(admin, oracle_addresses);
+        let c = CustodyValidatorClient::new(&env, &validator);
+        c.initialize(&auth, &admin, &oracle_addresses);
     }
 }

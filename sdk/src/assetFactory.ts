@@ -1,13 +1,11 @@
-import { 
-  Server, 
-  TransactionBuilder, 
-  Networks, 
-  Account, 
+import {
+  Server,
+  TransactionBuilder,
   Address,
   Contract,
   xdr,
   ScInt,
-  ScSymbol
+  ScSymbol,
 } from 'stellar-sdk';
 import { AssetInfo, AssetType, DeploymentOptions, RWASDKConfig, TransactionOptions, RWASDKError, ErrorCode } from './types';
 import { RWASDKError as RWASDKErrorClass } from './errors';
@@ -33,18 +31,12 @@ export class AssetFactory {
   ): Promise<{ transactionHash: string; tokenAddress: Address }> {
     try {
       const account = await this.server.getAccount(deployer.toString());
-      
-      // Build the contract call
+
+      const specScVal = this.rwaDeploySpecToScVal(options);
       const call = this.contract.call(
         'deploy_rwa_token',
-        new ScSymbol(options.name),
-        new ScSymbol(options.symbol),
-        new ScInt(options.totalSupply, xdr.ScValType.ScvI128),
-        new ScInt(options.decimals),
-        new ScSymbol(options.assetType),
-        this.convertMetadataToScMap(options.metadata),
-        new Address(options.complianceRegistry),
-        new Address(options.dividendDistributor)
+        deployer.toScVal(),
+        specScVal
       );
 
       const transaction = new TransactionBuilder(account, {
@@ -276,6 +268,62 @@ export class AssetFactory {
   }
 
   // Private helper methods
+
+  /**
+   * Encodes `RwaDeploySpec` from the on-chain contract (see `lib.rs`).
+   */
+  private rwaDeploySpecToScVal(options: DeploymentOptions): xdr.ScVal {
+    const tokenAddr = new Address(options.tokenContract.toString());
+    const complianceAddr = new Address(options.complianceRegistry.toString());
+    const dividendAddr = new Address(options.dividendDistributor.toString());
+    const metaVal = xdr.ScVal.scvMap(
+      Object.entries(options.metadata).map(
+        ([key, value]) =>
+          new xdr.ScMapEntry({
+            key: xdr.ScVal.scvSymbol(new ScSymbol(key)),
+            val: xdr.ScVal.scvSymbol(new ScSymbol(value)),
+          })
+      )
+    );
+    return xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('token_contract')),
+        val: tokenAddr.toScVal(),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_name')),
+        val: xdr.ScVal.scvSymbol(new ScSymbol(options.name)),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_symbol')),
+        val: xdr.ScVal.scvSymbol(new ScSymbol(options.symbol)),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('total_supply')),
+        val: new ScInt(options.totalSupply, { type: 'i128' }).toScVal(),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('decimals')),
+        val: xdr.ScVal.scvU32(options.decimals),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_type')),
+        val: xdr.ScVal.scvSymbol(new ScSymbol(String(options.assetType))),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('metadata')),
+        val: metaVal,
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('compliance_registry')),
+        val: complianceAddr.toScVal(),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol(new ScSymbol('dividend_distributor')),
+        val: dividendAddr.toScVal(),
+      }),
+    ]);
+  }
 
   private convertMetadataToScMap(metadata: Record<string, string>): xdr.ScMap {
     const map = new xdr.ScMap({

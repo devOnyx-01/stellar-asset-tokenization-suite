@@ -5,16 +5,21 @@
  * with full SEC compliance, investor accreditation, and transfer restrictions.
  */
 
-import { 
-  StellarRWASDK, 
-  createStellarRWASDK, 
-  AssetType, 
+import {
+  StellarRWASDK,
+  createStellarRWASDK,
+  AssetType,
   Currency,
-  VerificationLevel
+  VerificationLevel,
+  Address,
 } from '../sdk/src';
 
 // Configuration for the example
 const NETWORK = 'testnet';
+/** Deploy RWA token WASM first, then set this contract ID. */
+const EXAMPLE_RWA_TOKEN_CONTRACT = new Address(
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
+);
 const COMPANY_VALUATION = '50000000'; // $50M company valuation
 const TOTAL_SHARES = '10000000'; // 10M shares
 const SHARE_PRICE = parseFloat(COMPANY_VALUATION) / parseFloat(TOTAL_SHARES); // $5 per share
@@ -105,6 +110,7 @@ async function securityTokenExample() {
     // Step 3: Deploy security token
     console.log('📊 Step 3: Deploying Security Token...');
     const securityTokenDeployment = await sdk.assetFactory.deployRWAToken(company, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'TechCorp Series A Common Stock',
       symbol: 'TECHA',
       totalSupply: TOTAL_SHARES,

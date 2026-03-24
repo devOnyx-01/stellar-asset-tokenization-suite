@@ -5,16 +5,21 @@
  * with multi-jurisdictional compliance, currency conversion, and regulatory frameworks.
  */
 
-import { 
-  StellarRWASDK, 
-  createStellarRWASDK, 
-  AssetType, 
+import {
+  StellarRWASDK,
+  createStellarRWASDK,
+  AssetType,
   Currency,
-  VerificationLevel
+  VerificationLevel,
+  Address,
 } from '../sdk/src';
 
 // Configuration for the example
 const NETWORK = 'testnet';
+/** Deploy RWA token WASM first, then set this contract ID. */
+const EXAMPLE_RWA_TOKEN_CONTRACT = new Address(
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
+);
 const PROPERTY_VALUE_EUR = '5000000'; // €5M property in Germany
 const PROPERTY_VALUE_USD = '5500000'; // $5.5M equivalent (1.1 exchange rate)
 const TOKEN_SUPPLY = '500000'; // 500K tokens
@@ -118,6 +123,7 @@ async function crossBorderPropertyExample() {
     // Step 3: Deploy cross-border property token
     console.log('🏢 Step 3: Deploying Cross-Border Property Token...');
     const propertyTokenDeployment = await sdk.assetFactory.deployRWAToken(propertyOwner, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'Berlin Commercial Complex',
       symbol: 'BCC',
       totalSupply: TOKEN_SUPPLY,

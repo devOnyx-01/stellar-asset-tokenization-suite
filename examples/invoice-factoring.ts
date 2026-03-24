@@ -5,16 +5,21 @@
  * allowing businesses to get immediate liquidity by selling their invoices.
  */
 
-import { 
-  StellarRWASDK, 
-  createStellarRWASDK, 
-  AssetType, 
+import {
+  StellarRWASDK,
+  createStellarRWASDK,
+  AssetType,
   Currency,
-  VerificationLevel
+  VerificationLevel,
+  Address,
 } from '../sdk/src';
 
 // Configuration for the example
 const NETWORK = 'testnet';
+/** Deploy RWA token WASM first, then set this contract ID. */
+const EXAMPLE_RWA_TOKEN_CONTRACT = new Address(
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
+);
 const INVOICE_FACE_VALUE = '100000'; // $100,000 invoice
 const ADVANCE_RATE = 0.85; // 85% advance rate
 const ADVANCE_AMOUNT = (INVOICE_FACE_VALUE * ADVANCE_RATE).toString();
@@ -84,6 +89,7 @@ async function invoiceFactoringExample() {
     // Step 3: Deploy invoice token
     console.log('🧾 Step 3: Deploying Invoice Token...');
     const invoiceTokenDeployment = await sdk.assetFactory.deployRWAToken(factor, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'TechCorp Invoice #INV-2024-001',
       symbol: 'INV001',
       totalSupply: '100000', // 100,000 tokens representing $1 each
@@ -191,6 +197,7 @@ async function invoiceFactoringExample() {
     // Step 12: Create new invoice for next cycle
     console.log('📄 Step 11: Creating Next Invoice Token...');
     const nextInvoiceDeployment = await sdk.assetFactory.deployRWAToken(factor, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'TechCorp Invoice #INV-2024-002',
       symbol: 'INV002',
       totalSupply: '150000',

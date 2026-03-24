@@ -5,16 +5,21 @@
  * It shows the complete workflow from property registration to token deployment and trading.
  */
 
-import { 
-  StellarRWASDK, 
-  createStellarRWASDK, 
-  AssetType, 
+import {
+  StellarRWASDK,
+  createStellarRWASDK,
+  AssetType,
   Currency,
-  VerificationLevel
+  VerificationLevel,
+  Address,
 } from '../sdk/src';
 
 // Configuration for the example
 const NETWORK = 'testnet'; // Use testnet for examples
+/** Deploy RWA token WASM first, then set this contract ID. */
+const EXAMPLE_RWA_TOKEN_CONTRACT = new Address(
+  'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
+);
 const PROPERTY_VALUE = '10000000'; // $10M property
 const TOKEN_SUPPLY = '1000000'; // 1M tokens representing ownership
 const TOKEN_PRICE = parseFloat(PROPERTY_VALUE) / parseFloat(TOKEN_SUPPLY); // $10 per token
@@ -74,6 +79,7 @@ async function realEstateTokenizationExample() {
     // Step 3: Deploy the RWA token for the property
     console.log('🏠 Step 3: Deploying Real Estate Token...');
     const tokenDeployment = await sdk.assetFactory.deployRWAToken(propertyOwner, {
+      tokenContract: EXAMPLE_RWA_TOKEN_CONTRACT,
       name: 'Manhattan Office Tower',
       symbol: 'MOT',
       totalSupply: TOKEN_SUPPLY,

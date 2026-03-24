@@ -1,7 +1,10 @@
 use soroban_sdk::{
-    contract, contractimpl, Address, Env, Symbol, Vec, Map, BytesN, 
-    contracttype, contracterror
+    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec,
 };
+
+use crate::auth::assert_admin;
+use crate::rwa_token::RWATokenClient;
+use crate::RwaDeploySpec;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -13,6 +16,7 @@ pub enum AssetFactoryError {
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct AssetInfo {
     pub name: Symbol,
     pub symbol: Symbol,
@@ -32,127 +36,119 @@ pub struct AssetFactory;
 
 #[contractimpl]
 impl AssetFactory {
-    /// Initialize the asset factory
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, auth: Address, admin: Address) {
+        auth.require_auth();
         if env.storage().instance().has(&Symbol::new(&env, "admin")) {
             panic!("Factory already initialized");
         }
-        env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
-        env.storage().instance().set(&Symbol::new(&env, "assets"), &Vec::<Address>::new(&env));
-        env.storage().instance().set(&Symbol::new(&env, "asset_count"), &0u32);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "admin"), &admin);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "assets"), &Vec::<Address>::new(&env));
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "asset_count"), &0u32);
     }
 
-    /// Deploy a new RWA token contract
-    pub fn deploy_rwa_token(
-        env: Env,
-        asset_name: Symbol,
-        asset_symbol: Symbol,
-        total_supply: i128,
-        decimals: u32,
-        asset_type: Symbol,
-        metadata: Map<Symbol, Symbol>,
-        compliance_registry: Address,
-        dividend_distributor: Address,
-    ) -> Address {
-        // Validate parameters
-        if total_supply <= 0 || decimals > 18 {
+    /// Link and initialize a `token_contract` that was already deployed on-chain.
+    pub fn deploy_rwa_token(env: Env, auth: Address, spec: RwaDeploySpec) -> Address {
+        if spec.total_supply <= 0 || spec.decimals > 18 {
             panic!("Invalid token parameters");
         }
 
-        let admin: Address = env.storage().instance()
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Factory not initialized"));
 
-        // Check if caller is admin
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can deploy tokens");
-        }
+        assert_admin(&auth, &admin);
 
-        // Deploy new RWA token contract
-        let token_address = env.register_contract(None, RWAToken);
-        
-        // Initialize the token
-        let token_client = RWATokenClient::new(&env, &token_address);
+        let token_client = RWATokenClient::new(&env, &spec.token_contract);
         token_client.initialize(
-            asset_name,
-            asset_symbol,
-            total_supply,
-            decimals,
-            asset_type,
-            metadata.clone(),
-            compliance_registry,
-            dividend_distributor,
+            &auth,
+            &spec.asset_name,
+            &spec.asset_symbol,
+            &spec.total_supply,
+            &spec.decimals,
+            &spec.asset_type,
+            &spec.metadata,
+            &spec.compliance_registry,
+            &spec.dividend_distributor,
         );
 
-        // Store asset info
+        let asset_key = Symbol::new(&env, &spec.asset_symbol.to_string());
         let asset_info = AssetInfo {
-            name: asset_name,
-            symbol: asset_symbol,
-            total_supply,
-            decimals,
-            asset_type,
-            metadata,
-            compliance_registry,
-            dividend_distributor,
-            token_address: token_address.clone(),
+            name: spec.asset_name,
+            symbol: spec.asset_symbol,
+            total_supply: spec.total_supply,
+            decimals: spec.decimals,
+            asset_type: spec.asset_type,
+            metadata: spec.metadata.clone(),
+            compliance_registry: spec.compliance_registry,
+            dividend_distributor: spec.dividend_distributor,
+            token_address: spec.token_contract.clone(),
             created_at: env.ledger().timestamp(),
             is_paused: false,
         };
-
-        let asset_key = Symbol::new(&env, &asset_symbol.to_string());
         env.storage().instance().set(&asset_key, &asset_info);
 
-        // Update assets list
-        let mut assets: Vec<Address> = env.storage().instance()
+        let mut assets: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "assets"))
             .unwrap_or(Vec::new(&env));
-        assets.push_back(token_address.clone());
-        env.storage().instance().set(&Symbol::new(&env, "assets"), &assets);
+        assets.push_back(spec.token_contract.clone());
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "assets"), &assets);
 
-        // Update asset count
-        let mut count: u32 = env.storage().instance()
+        let mut count: u32 = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "asset_count"))
             .unwrap_or(0u32);
         count += 1;
-        env.storage().instance().set(&Symbol::new(&env, "asset_count"), &count);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "asset_count"), &count);
 
-        token_address
+        spec.token_contract
     }
 
-    /// Get asset information by symbol
     pub fn get_asset_info(env: Env, symbol: Symbol) -> AssetInfo {
         let asset_key = Symbol::new(&env, &symbol.to_string());
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&asset_key)
             .unwrap_or_else(|| panic!("Asset not found"))
     }
 
-    /// List all deployed assets
     pub fn list_assets(env: Env) -> Vec<AssetInfo> {
-        let assets: Vec<Address> = env.storage().instance()
+        let _assets: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "assets"))
             .unwrap_or(Vec::new(&env));
 
-        let mut asset_list = Vec::<AssetInfo>::new(&env);
-        for asset_address in assets.iter() {
-            // This would require cross-contract calls to get asset info
-            // For now, return empty list
-        }
-        asset_list
+        Vec::<AssetInfo>::new(&env)
     }
 
-    /// Pause/unpause an asset
-    pub fn set_asset_pause_status(env: Env, symbol: Symbol, paused: bool) {
-        let admin: Address = env.storage().instance()
+    pub fn set_asset_pause_status(env: Env, auth: Address, symbol: Symbol, paused: bool) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Factory not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can pause assets");
-        }
+        assert_admin(&auth, &admin);
 
         let asset_key = Symbol::new(&env, &symbol.to_string());
-        let mut asset_info: AssetInfo = env.storage().instance()
+        let mut asset_info: AssetInfo = env
+            .storage()
+            .instance()
             .get(&asset_key)
             .unwrap_or_else(|| panic!("Asset not found"));
 
@@ -160,19 +156,17 @@ impl AssetFactory {
         env.storage().instance().set(&asset_key, &asset_info);
     }
 
-    /// Update factory admin
-    pub fn update_admin(env: Env, new_admin: Address) {
-        let admin: Address = env.storage().instance()
+    pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
             .get(&Symbol::new(&env, "admin"))
             .unwrap_or_else(|| panic!("Factory not initialized"));
 
-        if env.invoker() != admin {
-            panic!("Unauthorized: Only admin can update admin");
-        }
+        assert_admin(&auth, &admin);
 
-        env.storage().instance().set(&Symbol::new(&env, "admin"), &new_admin);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "admin"), &new_admin);
     }
 }
-
-// Import the RWA token contract
-use crate::rwa_token::{RWAToken, RWATokenClient};
