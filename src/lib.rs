@@ -1,6 +1,7 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, Symbol, Vec};
 
 mod asset_factory;
+mod asset_class_handlers;
 mod auth;
 mod compliance_registry;
 mod custody_validator;
