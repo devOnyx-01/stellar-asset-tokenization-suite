@@ -1,382 +1,533 @@
-import {
-  Server,
-  TransactionBuilder,
-  Address,
+import { 
+  Server, 
+  TransactionBuilder, 
+  Asset, 
+  Keypair, 
   Contract,
+  SorobanRpc,
   xdr,
   ScInt,
-  ScSymbol,
-} from 'stellar-sdk';
-import { AssetInfo, AssetType, DeploymentOptions, RWASDKConfig, TransactionOptions, RWASDKError, ErrorCode } from './types';
-import { RWASDKError as RWASDKErrorClass } from './errors';
+  Address,
+  nativeToScVal,
+  scValToNative
+} from '@stellar/stellar-sdk';
+
+export enum AssetClass {
+  RealEstate = 0,
+  Commodity = 1,
+  Invoice = 2,
+  Security = 3,
+  Art = 4,
+  CarbonCredit = 5
+}
+
+export interface ComplianceRules {
+  kyc_required: boolean;
+  accredited_investor_only: boolean;
+  geographic_restrictions: string[];
+  holding_period_days: number;
+  transfer_limits: bigint;
+}
+
+export interface DividendSchedule {
+  frequency_days: number;
+  next_distribution_date: number;
+  total_distributed: bigint;
+  is_active: boolean;
+}
+
+export interface AssetConfig {
+  name: string;
+  symbol: string;
+  decimals: number;
+  total_supply: bigint;
+  asset_class: AssetClass;
+  compliance_rules: ComplianceRules;
+  dividend_schedule?: DividendSchedule;
+  metadata: Record<string, string>;
+}
+
+export interface RealEstateConfig {
+  property_address: string;
+  location_oracle: string;
+  rental_yield_rate: number; // in basis points
+  property_management_voting: boolean;
+  insurance_status: boolean;
+  appraisal_value: bigint;
+}
+
+export interface CommodityConfig {
+  commodity_type: string;
+  vault_location: string;
+  custody_vault: string;
+  purity_grade: string;
+  physical_redemption_window: number;
+  quality_attestation: string;
+}
+
+export interface InvoiceConfig {
+  invoice_number: string;
+  debtor_address: string;
+  due_date: number;
+  credit_rating: string;
+  automatic_settlement: boolean;
+  invoice_amount: bigint;
+}
+
+export interface SecurityConfig {
+  equity_type: string;
+  regulation_framework: string;
+  accreditation_required: boolean;
+  holding_period_days: number;
+  regulatory_reporting: boolean;
+  isin: string;
+}
+
+export interface ArtConfig {
+  artist_name: string;
+  provenance_hash: string;
+  insurance_status: boolean;
+  exhibition_voting: boolean;
+  appraisal_value: bigint;
+  authenticity_certificate: string;
+}
+
+export interface CarbonCreditConfig {
+  project_id: string;
+  vintage_year: number;
+  retirement_functionality: boolean;
+  project_metadata: Record<string, string>;
+  verification_standard: string;
+  carbon_offset_amount: bigint;
+}
+
+export interface DeploymentCost {
+  gas_cost_xlm: number;
+  storage_cost_bytes: number;
+  estimated_time_seconds: number;
+}
 
 export class AssetFactory {
   private server: Server;
   private contract: Contract;
-  private config: RWASDKConfig;
+  private networkPassphrase: string;
 
-  constructor(config: RWASDKConfig) {
-    this.config = config;
-    this.server = new Server(config.stellar.serverUrl);
-    this.contract = new Contract(config.contracts.assetFactory);
+  constructor(
+    serverUrl: string,
+    contractId: string,
+    networkPassphrase: string = 'Test SDF Network ; September 2015'
+  ) {
+    this.server = new Server(serverUrl);
+    this.contract = new Contract(contractId);
+    this.networkPassphrase = networkPassphrase;
   }
 
   /**
-   * Deploy a new RWA token contract
+   * Deploy a Real Estate token with specialized configuration
    */
-  async deployRWAToken(
-    deployer: Address,
-    options: DeploymentOptions,
-    txOptions: TransactionOptions = {}
-  ): Promise<{ transactionHash: string; tokenAddress: Address }> {
-    try {
-      const account = await this.server.getAccount(deployer.toString());
+  async deployRealEstateToken(
+    signer: Keypair,
+    propertyDetails: RealEstateConfig,
+    ownershipStructure: AssetConfig
+  ): Promise<{ address: string; transactionId: string }> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    // Create real estate specific metadata
+    const metadata = {
+      ...ownershipStructure.metadata,
+      property_address: propertyDetails.property_address,
+      location_oracle: propertyDetails.location_oracle,
+      rental_yield: propertyDetails.rental_yield_rate.toString(),
+      insurance_status: propertyDetails.insurance_status.toString(),
+      appraisal_value: propertyDetails.appraisal_value.toString(),
+      property_management_voting: propertyDetails.property_management_voting.toString()
+    };
 
-      const specScVal = this.rwaDeploySpecToScVal(options);
-      const call = this.contract.call(
-        'deploy_rwa_token',
-        deployer.toScVal(),
-        specScVal
+    const config: AssetConfig = {
+      ...ownershipStructure,
+      asset_class: AssetClass.RealEstate,
+      metadata
+    };
+
+    const tx = await this.buildCreateAssetTransaction(signer, config);
+    const result = await this.submitTransaction(tx, signer);
+    
+    return {
+      address: result.returnValue?.address || '',
+      transactionId: result.hash
+    };
+  }
+
+  /**
+   * Deploy a Commodity token with specialized configuration
+   */
+  async deployCommodityToken(
+    signer: Keypair,
+    commodityConfig: CommodityConfig,
+    baseConfig: AssetConfig
+  ): Promise<{ address: string; transactionId: string }> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    // Validate purity grade
+    const validGrades = ['999', '995', '990', '750'];
+    if (!validGrades.includes(commodityConfig.purity_grade)) {
+      throw new Error('Invalid purity grade. Must be one of: ' + validGrades.join(', '));
+    }
+
+    // Create commodity specific metadata
+    const metadata = {
+      ...baseConfig.metadata,
+      commodity_type: commodityConfig.commodity_type,
+      vault_location: commodityConfig.vault_location,
+      purity_grade: commodityConfig.purity_grade,
+      redemption_window: commodityConfig.physical_redemption_window.toString(),
+      custody_vault: commodityConfig.custody_vault
+    };
+
+    const config: AssetConfig = {
+      ...baseConfig,
+      asset_class: AssetClass.Commodity,
+      metadata
+    };
+
+    const tx = await this.buildCreateAssetTransaction(signer, config);
+    const result = await this.submitTransaction(tx, signer);
+    
+    return {
+      address: result.returnValue?.address || '',
+      transactionId: result.hash
+    };
+  }
+
+  /**
+   * Deploy an Invoice token with specialized configuration
+   */
+  async deployInvoiceToken(
+    signer: Keypair,
+    invoiceData: InvoiceConfig,
+    baseConfig: AssetConfig
+  ): Promise<{ address: string; transactionId: string }> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    // Validate due date is in future
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (invoiceData.due_date <= currentTime) {
+      throw new Error('Due date must be in future');
+    }
+
+    // Validate credit rating
+    const validRatings = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC'];
+    if (!validRatings.includes(invoiceData.credit_rating)) {
+      throw new Error('Invalid credit rating. Must be one of: ' + validRatings.join(', '));
+    }
+
+    // Create invoice specific metadata
+    const metadata = {
+      ...baseConfig.metadata,
+      invoice_number: invoiceData.invoice_number,
+      debtor_address: invoiceData.debtor_address,
+      due_date: invoiceData.due_date.toString(),
+      credit_rating: invoiceData.credit_rating,
+      invoice_amount: invoiceData.invoice_amount.toString(),
+      automatic_settlement: invoiceData.automatic_settlement.toString()
+    };
+
+    const config: AssetConfig = {
+      ...baseConfig,
+      asset_class: AssetClass.Invoice,
+      total_supply: invoiceData.invoice_amount,
+      metadata
+    };
+
+    const tx = await this.buildCreateAssetTransaction(signer, config);
+    const result = await this.submitTransaction(tx, signer);
+    
+    return {
+      address: result.returnValue?.address || '',
+      transactionId: result.hash
+    };
+  }
+
+  /**
+   * Deploy a Security token with specialized configuration
+   */
+  async deploySecurityToken(
+    signer: Keypair,
+    equityType: string,
+    regulationFramework: string,
+    baseConfig: AssetConfig
+  ): Promise<{ address: string; transactionId: string }> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    // Validate regulation framework
+    const validFrameworks = ['REG_D', 'REG_S', 'RULE_144', 'REG_A+'];
+    if (!validFrameworks.includes(regulationFramework)) {
+      throw new Error('Invalid regulation framework. Must be one of: ' + validFrameworks.join(', '));
+    }
+
+    // Update compliance rules for securities
+    const complianceRules: ComplianceRules = {
+      ...baseConfig.compliance_rules,
+      accredited_investor_only: true,
+      holding_period_days: regulationFramework === 'RULE_144' ? 365 : 90
+    };
+
+    // Create security specific metadata
+    const metadata = {
+      ...baseConfig.metadata,
+      equity_type: equityType,
+      regulation_framework: regulationFramework,
+      regulatory_reporting: 'true'
+    };
+
+    const config: AssetConfig = {
+      ...baseConfig,
+      asset_class: AssetClass.Security,
+      compliance_rules,
+      metadata
+    };
+
+    const tx = await this.buildCreateAssetTransaction(signer, config);
+    const result = await this.submitTransaction(tx, signer);
+    
+    return {
+      address: result.returnValue?.address || '',
+      transactionId: result.hash
+    };
+  }
+
+  /**
+   * Get standard configuration template for an asset class
+   */
+  getAssetClassTemplate(assetClass: AssetClass): AssetConfig {
+    const baseTemplate: Omit<AssetConfig, 'name' | 'symbol' | 'total_supply'> = {
+      decimals: 18,
+      asset_class: assetClass,
+      compliance_rules: this.getDefaultComplianceRules(assetClass),
+      dividend_schedule: this.getDefaultDividendSchedule(assetClass),
+      metadata: {}
+    };
+
+    return baseTemplate as AssetConfig;
+  }
+
+  /**
+   * Estimate deployment costs for an asset class
+   */
+  async estimateDeploymentCost(assetClass: AssetClass): Promise<DeploymentCost> {
+    // Base costs in XLM
+    const baseGasCost = 0.1;
+    const baseStorageCost = 10000; // bytes
+    const baseTime = 5; // seconds
+
+    // Asset class specific adjustments
+    const multipliers = {
+      [AssetClass.RealEstate]: { gas: 1.2, storage: 1.3, time: 1.5 },
+      [AssetClass.Commodity]: { gas: 1.1, storage: 1.2, time: 1.2 },
+      [AssetClass.Invoice]: { gas: 1.0, storage: 1.1, time: 1.0 },
+      [AssetClass.Security]: { gas: 1.5, storage: 1.5, time: 2.0 },
+      [AssetClass.Art]: { gas: 1.3, storage: 1.4, time: 1.7 },
+      [AssetClass.CarbonCredit]: { gas: 1.1, storage: 1.1, time: 1.1 }
+    };
+
+    const multiplier = multipliers[assetClass];
+
+    return {
+      gas_cost_xlm: baseGasCost * multiplier.gas,
+      storage_cost_bytes: Math.floor(baseStorageCost * multiplier.storage),
+      estimated_time_seconds: Math.floor(baseTime * multiplier.time)
+    };
+  }
+
+  /**
+   * Get all deployed assets
+   */
+  async getAllAssets(): Promise<any[]> {
+    try {
+      const result = await this.server.getContractData(
+        this.contract.getStellarAccountId(),
+        xdr.ScVal.scvSymbol('registry')
       );
-
-      const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
-        networkPassphrase: this.config.stellar.passphrase
-      })
-        .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
-        .build();
-
-      // Sign and submit transaction
-      const signedTx = await this.signTransaction(transaction, deployer);
-      const result = await this.server.sendTransaction(signedTx);
-
-      if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+      
+      if (!result.val) {
+        return [];
       }
 
-      // Extract token address from result
-      const tokenAddress = this.extractTokenAddress(result.resultMetaXdr);
-
-      return {
-        transactionHash: result.hash,
-        tokenAddress
-      };
+      const registry = scValToNative(result.val);
+      return Object.values(registry).map((asset: any) => ({
+        symbol: asset.symbol,
+        name: asset.name,
+        asset_class: asset.asset_class,
+        total_supply: asset.total_supply.toString(),
+        token_address: asset.token_address,
+        created_at: asset.created_at,
+        is_paused: asset.is_paused
+      }));
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error fetching assets:', error);
+      return [];
     }
   }
 
   /**
-   * Get asset information by symbol
+   * Emergency pause all assets
    */
-  async getAssetInfo(symbol: string): Promise<AssetInfo> {
-    try {
-      const result = await this.contract.call('get_asset_info', new ScSymbol(symbol));
-      const assetInfo = this.convertScValToAssetInfo(result.result);
-      return assetInfo;
-    } catch (error) {
-      throw this.handleError(error);
-    }
+  async emergencyPauseAll(signer: Keypair): Promise<string> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    const tx = new TransactionBuilder(account, {
+      fee: '100',
+      networkPassphrase: this.networkPassphrase
+    })
+      .addOperation(this.contract.call(
+        'emergency_pause_all',
+        ...this.buildAuthArgs(signer)
+      ))
+      .setTimeout(30)
+      .build();
+
+    const result = await this.submitTransaction(tx, signer);
+    return result.hash;
   }
 
-  /**
-   * List all deployed assets
-   */
-  async listAssets(): Promise<AssetInfo[]> {
-    try {
-      const result = await this.contract.call('list_assets');
-      const assets = this.convertScValToAssetInfoArray(result.result);
-      return assets;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Pause/unpause an asset
-   */
-  async setAssetPauseStatus(
-    admin: Address,
-    symbol: string,
-    paused: boolean,
-    txOptions: TransactionOptions = {}
-  ): Promise<string> {
-    try {
-      const account = await this.server.getAccount(admin.toString());
-      
-      const call = this.contract.call(
-        'set_asset_pause_status',
-        new ScSymbol(symbol),
-        paused
-      );
-
-      const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
-        networkPassphrase: this.config.stellar.passphrase
-      })
-        .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
-        .build();
-
-      const signedTx = await this.signTransaction(transaction, admin);
-      const result = await this.server.sendTransaction(signedTx);
-
-      if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
-      }
-
-      return result.hash;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Update factory admin
-   */
-  async updateAdmin(
-    currentAdmin: Address,
-    newAdmin: Address,
-    txOptions: TransactionOptions = {}
-  ): Promise<string> {
-    try {
-      const account = await this.server.getAccount(currentAdmin.toString());
-      
-      const call = this.contract.call('update_admin', new Address(newAdmin));
-
-      const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
-        networkPassphrase: this.config.stellar.passphrase
-      })
-        .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
-        .build();
-
-      const signedTx = await this.signTransaction(transaction, currentAdmin);
-      const result = await this.server.sendTransaction(signedTx);
-
-      if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
-      }
-
-      return result.hash;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Initialize the asset factory (for first-time setup)
-   */
-  async initialize(
-    deployer: Address,
-    txOptions: TransactionOptions = {}
-  ): Promise<string> {
-    try {
-      const account = await this.server.getAccount(deployer.toString());
-      
-      const call = this.contract.call('initialize', new Address(deployer));
-
-      const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
-        networkPassphrase: this.config.stellar.passphrase
-      })
-        .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
-        .build();
-
-      const signedTx = await this.signTransaction(transaction, deployer);
-      const result = await this.server.sendTransaction(signedTx);
-
-      if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
-      }
-
-      return result.hash;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Get factory statistics
-   */
-  async getFactoryStats(): Promise<{
-    totalAssets: number;
-    activeAssets: number;
-    pausedAssets: number;
-    totalSupply: string;
-  }> {
-    try {
-      const assets = await this.listAssets();
-      const totalAssets = assets.length;
-      const activeAssets = assets.filter(a => !a.isPaused && !a.isFrozen).length;
-      const pausedAssets = assets.filter(a => a.isPaused).length;
-      
-      const totalSupply = assets.reduce((sum, asset) => {
-        return sum + BigInt(asset.totalSupply);
-      }, BigInt(0));
-
-      return {
-        totalAssets,
-        activeAssets,
-        pausedAssets,
-        totalSupply: totalSupply.toString()
-      };
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Search assets by type or metadata
-   */
-  async searchAssets(filters: {
-    assetType?: AssetType;
-    metadata?: Record<string, string>;
-    isActive?: boolean;
-  }): Promise<AssetInfo[]> {
-    try {
-      const allAssets = await this.listAssets();
-      
-      return allAssets.filter(asset => {
-        if (filters.assetType && asset.assetType !== filters.assetType) {
-          return false;
-        }
-        
-        if (filters.isActive !== undefined) {
-          const isActive = !asset.isPaused && !asset.isFrozen;
-          if (filters.isActive !== isActive) {
-            return false;
-          }
-        }
-        
-        if (filters.metadata) {
-          for (const [key, value] of Object.entries(filters.metadata)) {
-            if (asset.metadata[key] !== value) {
-              return false;
-            }
-          }
-        }
-        
-        return true;
-      });
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  // Private helper methods
-
-  /**
-   * Encodes `RwaDeploySpec` from the on-chain contract (see `lib.rs`).
-   */
-  private rwaDeploySpecToScVal(options: DeploymentOptions): xdr.ScVal {
-    const tokenAddr = new Address(options.tokenContract.toString());
-    const complianceAddr = new Address(options.complianceRegistry.toString());
-    const dividendAddr = new Address(options.dividendDistributor.toString());
-    const metaVal = xdr.ScVal.scvMap(
-      Object.entries(options.metadata).map(
-        ([key, value]) =>
-          new xdr.ScMapEntry({
-            key: xdr.ScVal.scvSymbol(new ScSymbol(key)),
-            val: xdr.ScVal.scvSymbol(new ScSymbol(value)),
-          })
-      )
-    );
-    return xdr.ScVal.scvMap([
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('token_contract')),
-        val: tokenAddr.toScVal(),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_name')),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(options.name)),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_symbol')),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(options.symbol)),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('total_supply')),
-        val: new ScInt(options.totalSupply, { type: 'i128' }).toScVal(),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('decimals')),
-        val: xdr.ScVal.scvU32(options.decimals),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('asset_type')),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(String(options.assetType))),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('metadata')),
-        val: metaVal,
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('compliance_registry')),
-        val: complianceAddr.toScVal(),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(new ScSymbol('dividend_distributor')),
-        val: dividendAddr.toScVal(),
-      }),
-    ]);
-  }
-
-  private convertMetadataToScMap(metadata: Record<string, string>): xdr.ScMap {
-    const map = new xdr.ScMap({
-      map: Object.entries(metadata).map(([key, value]) => ({
-        key: xdr.ScVal.scvSymbol(new ScSymbol(key)),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(value))
-      }))
+  private async buildCreateAssetTransaction(
+    signer: Keypair,
+    config: AssetConfig
+  ): Promise<any> {
+    const account = await this.server.getAccount(signer.publicKey());
+    
+    const configScVal = nativeToScVal(config, {
+      type: {
+        [AssetClass.RealEstate]: 'AssetConfig',
+        [AssetClass.Commodity]: 'AssetConfig',
+        [AssetClass.Invoice]: 'AssetConfig',
+        [AssetClass.Security]: 'AssetConfig',
+        [AssetClass.Art]: 'AssetConfig',
+        [AssetClass.CarbonCredit]: 'AssetConfig'
+      }[config.asset_class]
     });
-    return map;
+
+    return new TransactionBuilder(account, {
+      fee: '100',
+      networkPassphrase: this.networkPassphrase
+    })
+      .addOperation(this.contract.call(
+        'create_asset',
+        ...this.buildAuthArgs(signer),
+        configScVal
+      ))
+      .setTimeout(30)
+      .build();
   }
 
-  private convertScValToAssetInfo(scVal: xdr.ScVal): AssetInfo {
-    // This would parse the ScVal returned from the contract
-    // For now, return a placeholder implementation
-    throw new Error('convertScValToAssetInfo not implemented');
+  private buildAuthArgs(signer: Keypair): xdr.ScVal[] {
+    return [
+      nativeToScVal(new Address(signer.publicKey()), { type: 'Address' })
+    ];
   }
 
-  private convertScValToAssetInfoArray(scVal: xdr.ScVal): AssetInfo[] {
-    // This would parse the ScVal array returned from the contract
-    // For now, return a placeholder implementation
-    throw new Error('convertScValToAssetInfoArray not implemented');
-  }
-
-  private extractTokenAddress(resultMetaXdr: string): Address {
-    // This would extract the token address from transaction result
-    // For now, return a placeholder implementation
-    throw new Error('extractTokenAddress not implemented');
-  }
-
-  private async signTransaction(transaction: any, signer: Address): Promise<any> {
-    // This would sign the transaction with the signer's key
-    // For now, return a placeholder implementation
-    throw new Error('signTransaction not implemented');
-  }
-
-  private handleError(error: any): RWASDKErrorClass {
-    if (error instanceof RWASDKErrorClass) {
-      return error;
+  private async submitTransaction(
+    transaction: any,
+    signer: Keypair
+  ): Promise<any> {
+    transaction.sign(signer);
+    
+    const result = await this.server.sendTransaction(transaction);
+    
+    if (result.status === 'ERROR') {
+      throw new Error(`Transaction failed: ${result.errorResult}`);
     }
 
-    // Convert different error types to RWASDKError
-    if (error.message?.includes('timeout')) {
-      return new RWASDKErrorClass(ErrorCode.TIMEOUT, error.message);
+    // Wait for transaction confirmation
+    const txResult = await this.server.getTransaction(result.hash!);
+    
+    if (txResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      return txResult;
+    } else {
+      throw new Error(`Transaction not successful: ${txResult.status}`);
     }
+  }
 
-    if (error.message?.includes('insufficient')) {
-      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, error.message);
+  private getDefaultComplianceRules(assetClass: AssetClass): ComplianceRules {
+    switch (assetClass) {
+      case AssetClass.RealEstate:
+        return {
+          kyc_required: true,
+          accredited_investor_only: false,
+          geographic_restrictions: [],
+          holding_period_days: 90,
+          transfer_limits: BigInt(1000000)
+        };
+      case AssetClass.Commodity:
+        return {
+          kyc_required: true,
+          accredited_investor_only: false,
+          geographic_restrictions: [],
+          holding_period_days: 0,
+          transfer_limits: BigInt(5000000)
+        };
+      case AssetClass.Invoice:
+        return {
+          kyc_required: true,
+          accredited_investor_only: true,
+          geographic_restrictions: [],
+          holding_period_days: 30,
+          transfer_limits: BigInt(2500000)
+        };
+      case AssetClass.Security:
+        return {
+          kyc_required: true,
+          accredited_investor_only: true,
+          geographic_restrictions: ['US', 'EU', 'UK'],
+          holding_period_days: 365,
+          transfer_limits: BigInt(100000)
+        };
+      case AssetClass.Art:
+        return {
+          kyc_required: true,
+          accredited_investor_only: false,
+          geographic_restrictions: [],
+          holding_period_days: 180,
+          transfer_limits: BigInt(500000)
+        };
+      case AssetClass.CarbonCredit:
+        return {
+          kyc_required: true,
+          accredited_investor_only: false,
+          geographic_restrictions: [],
+          holding_period_days: 0,
+          transfer_limits: BigInt(10000000)
+        };
     }
+  }
 
-    if (error.message?.includes('unauthorized')) {
-      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, error.message);
+  private getDefaultDividendSchedule(assetClass: AssetClass): DividendSchedule | undefined {
+    const now = Math.floor(Date.now() / 1000);
+    
+    switch (assetClass) {
+      case AssetClass.RealEstate:
+        return {
+          frequency_days: 90,
+          next_distribution_date: now + (90 * 86400),
+          total_distributed: BigInt(0),
+          is_active: true
+        };
+      case AssetClass.Invoice:
+        return {
+          frequency_days: 30,
+          next_distribution_date: now + (30 * 86400),
+          total_distributed: BigInt(0),
+          is_active: true
+        };
+      case AssetClass.Security:
+        return {
+          frequency_days: 90,
+          next_distribution_date: now + (90 * 86400),
+          total_distributed: BigInt(0),
+          is_active: true
+        };
+      default:
+        return undefined;
     }
-
-    return new RWASDKErrorClass(ErrorCode.NETWORK_ERROR, error.message);
   }
 }
