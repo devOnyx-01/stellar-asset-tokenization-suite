@@ -1,10 +1,12 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token::TokenClient, Address, Env, Map,
-    Symbol, Vec,
+    Symbol, Vec, log,
 };
 
 use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
+use crate::dividend_distributor::DividendDistributorClient;
+use crate::compliance_registry::ComplianceRegistryClient;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -17,64 +19,61 @@ pub enum MarketError {
     InsufficientLiquidity = 6,
     TradingPaused = 7,
     ComplianceFailed = 8,
+    CircuitBreakerTripped = 9,
+    DividendHalt = 10,
+    MinOrderSizeNotMet = 11,
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Order {
-    pub order_id: u64,
-    pub order_type: Symbol,
+    pub id: u64,
+    pub maker: Address,
     pub token_address: Address,
-    pub trader: Address,
-    pub amount: i128,
+    pub side: Symbol, // "buy" or "sell"
     pub price: i128,
-    pub total_value: i128,
+    pub amount: i128,
     pub filled_amount: i128,
-    pub remaining_amount: i128,
-    pub created_at: u64,
+    pub min_fill: i128,
     pub expires_at: u64,
+    pub created_at: u64,
     pub is_active: bool,
-    pub metadata: Map<Symbol, Symbol>,
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Trade {
-    pub trade_id: u64,
-    pub buy_order_id: u64,
-    pub sell_order_id: u64,
-    pub token_address: Address,
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub price: i128,
-    pub total_value: i128,
-    pub fee_amount: i128,
-    pub executed_at: u64,
+    pub order_id: u64,
+    pub taker: Address,
+    pub fill_amount: i128,
+    pub fill_price: i128,
+    pub timestamp: u64,
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MarketConfig {
-    pub fee_rate: i64,
+    pub admin: Address,
+    pub fee_rate_bps: i64,
     pub fee_recipient: Address,
     pub min_order_size: i128,
-    pub max_order_size: i128,
-    pub max_spread_bps: i64,
+    pub max_price_deviation_bps: i64, // e.g. 2000 for 20%
     pub is_paused: bool,
-    pub supported_tokens: Vec<Address>,
     pub base_currency: Address,
+    pub compliance_registry: Address,
+    pub dividend_distributor: Address,
 }
 
 #[contracttype]
-#[derive(Clone)]
-pub struct OrderBook {
-    pub token_address: Address,
-    pub buy_orders: Vec<Order>,
-    pub sell_orders: Vec<Order>,
-    pub last_price: i128,
-    pub volume_24h: i128,
-    pub last_updated: u64,
+pub enum DataKey {
+    Admin,
+    Config,
+    OrderCount,
+    TradeCount,
+    Order(u64),
+    PriceHistory(Address), // Vec<Trade> or similar for VWAP
+    VWAP(Address),
+    LastUpdate(Address),
 }
 
 #[contract]
@@ -84,648 +83,316 @@ pub struct SecondaryMarket;
 impl SecondaryMarket {
     pub fn initialize(
         env: Env,
-        auth: Address,
         admin: Address,
-        fee_rate: i64,
+        base_currency: Address,
+        compliance_registry: Address,
+        dividend_distributor: Address,
+        fee_rate_bps: i64,
         min_order_size: i128,
     ) {
-        auth.require_auth();
-        if env
-            .storage()
-            .instance()
-            .has(&Symbol::new(&env, "initialized"))
-        {
-            panic!("Market already initialized");
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("Already initialized");
         }
 
-        // Placeholder until `update_config` sets a real settlement token; avoids private Address ctors.
-        let base_currency = admin.clone();
         let config = MarketConfig {
-            fee_rate,
+            admin: admin.clone(),
+            fee_rate_bps,
             fee_recipient: admin.clone(),
             min_order_size,
-            max_order_size: i128::MAX / 1000,
-            max_spread_bps: 500,
+            max_price_deviation_bps: 2000, // 20%
             is_paused: false,
-            supported_tokens: Vec::new(&env),
             base_currency,
+            compliance_registry,
+            dividend_distributor,
         };
 
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "admin"), &admin);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "config"), &config);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "initialized"), &true);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "order_count"), &0u64);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "trade_count"), &0u64);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "orders"), &Vec::<Order>::new(&env));
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "trades"), &Vec::<Trade>::new(&env));
-        env.storage().instance().set(
-            &Symbol::new(&env, "order_books"),
-            &Map::<Address, OrderBook>::new(&env),
-        );
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Config, &config);
+        env.storage().instance().set(&DataKey::OrderCount, &0u64);
+        env.storage().instance().set(&DataKey::TradeCount, &0u64);
     }
 
-    pub fn create_buy_order(
+    pub fn place_order(
         env: Env,
-        auth: Address,
+        maker: Address,
         token_address: Address,
-        amount: i128,
+        side: Symbol,
         price: i128,
-        expires_at: u64,
-    ) -> u64 {
-        auth.require_auth();
-        let order_type = Symbol::new(&env, "buy");
-        Self::create_order(
-            env,
-            auth,
-            token_address,
-            order_type,
-            amount,
-            price,
-            expires_at,
-        )
-    }
-
-    pub fn create_sell_order(
-        env: Env,
-        auth: Address,
-        token_address: Address,
         amount: i128,
-        price: i128,
-        expires_at: u64,
+        expiry: u64,
+        min_fill: i128,
     ) -> u64 {
-        auth.require_auth();
-        let order_type = Symbol::new(&env, "sell");
-        Self::create_order(
-            env,
-            auth,
-            token_address,
-            order_type,
-            amount,
-            price,
-            expires_at,
-        )
-    }
+        maker.require_auth();
 
-    fn create_order(
-        env: Env,
-        auth: Address,
-        token_address: Address,
-        order_type: Symbol,
-        amount: i128,
-        price: i128,
-        expires_at: u64,
-    ) -> u64 {
-        if amount <= 0 || price <= 0 {
-            panic!("Invalid amount or price");
-        }
-
-        let config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
-
+        let config: MarketConfig = env.storage().instance().get(&DataKey::Config).unwrap();
         if config.is_paused {
-            panic!("Trading is paused");
+            panic!("Market paused");
         }
 
-        if !config
-            .supported_tokens
-            .iter()
-            .any(|t| t.clone() == token_address)
-        {
-            panic!("Token not supported");
+        // 1. Compliance & Halt Checks
+        Self::check_trading_halt(&env, &config, &token_address);
+        Self::check_compliance(&env, &config, &maker, &token_address);
+
+        // 2. Market Mechanic Checks
+        if amount < config.min_order_size {
+            panic!("Amount below minimum order size");
+        }
+        if price <= 0 {
+            panic!("Invalid price");
+        }
+        if expiry <= env.ledger().timestamp() {
+            panic!("Order already expired");
         }
 
-        if amount < config.min_order_size || amount > config.max_order_size {
-            panic!("Order size outside limits");
-        }
+        // 3. Circuit Breaker
+        Self::check_price_deviation(&env, &token_address, price, config.max_price_deviation_bps);
 
-        let trader = auth;
-        let total_value = amount * price;
-
-        if order_type == Symbol::new(&env, "buy") {
-            let base_client = TokenClient::new(&env, &config.base_currency);
-            if base_client.balance(&trader) < total_value {
-                panic!("Insufficient base currency balance");
-            }
+        // 4. Escrow
+        if side == Symbol::new(&env, "buy") {
+            let total_cost = amount * price;
+            let base_token = TokenClient::new(&env, &config.base_currency);
+            base_token.transfer(&maker, &env.current_contract_address(), &total_cost);
+        } else if side == Symbol::new(&env, "sell") {
+            let rwa_token = RWATokenClient::new(&env, &token_address);
+            rwa_token.transfer(&maker, &env.current_contract_address(), &amount);
         } else {
-            let rwa_client = RWATokenClient::new(&env, &token_address);
-            if rwa_client.get_balance(&trader).amount < amount {
-                panic!("Insufficient token balance");
-            }
+            panic!("Invalid side");
         }
 
-        let order_count: u64 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "order_count"))
-            .unwrap_or(0u64);
-
-        let order_id = order_count + 1;
+        // 5. Create Order
+        let mut count: u64 = env.storage().instance().get(&DataKey::OrderCount).unwrap();
+        count += 1;
+        env.storage().instance().set(&DataKey::OrderCount, &count);
 
         let order = Order {
-            order_id,
-            order_type: order_type.clone(),
+            id: count,
+            maker: maker.clone(),
             token_address: token_address.clone(),
-            trader: trader.clone(),
-            amount,
+            side: side.clone(),
             price,
-            total_value,
+            amount,
             filled_amount: 0,
-            remaining_amount: amount,
+            min_fill,
+            expires_at: expiry,
             created_at: env.ledger().timestamp(),
-            expires_at,
             is_active: true,
-            metadata: Map::new(&env),
         };
 
-        let mut orders: Vec<Order> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
-
-        orders.push_back(order.clone());
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "orders"), &orders);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "order_count"), &order_id);
-
-        Self::update_order_book(env.clone(), token_address.clone(), order.clone());
-
-        if order.order_type == Symbol::new(&env, "buy") {
-            let base_client = TokenClient::new(&env, &config.base_currency);
-            base_client.transfer(&trader, &env.current_contract_address(), &total_value);
-        } else {
-            let rwa_client = RWATokenClient::new(&env, &token_address);
-            rwa_client.transfer(&trader, &env.current_contract_address(), &amount);
-        }
+        // Store in Temporary storage
+        env.storage().temporary().set(&DataKey::Order(count), &order);
 
         env.events().publish(
-            (Symbol::new(&env, "order_created"), token_address.clone()),
-            (order_id, order_type, amount, price),
+            (Symbol::new(&env, "order_placed"), token_address),
+            (count, maker, side, price, amount),
         );
 
-        Self::match_orders(env.clone(), token_address);
-
-        order_id
+        count
     }
 
-    pub fn cancel_order(env: Env, auth: Address, order_id: u64) {
-        auth.require_auth();
+    pub fn fill_order(env: Env, taker: Address, order_id: u64, fill_amount: i128) {
+        taker.require_auth();
 
-        let orders: Vec<Order> = env
+        let mut order: Order = env
             .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
+            .temporary()
+            .get(&DataKey::Order(order_id))
+            .unwrap_or_else(|| panic!("Order not found or expired"));
 
-        let mut order: Option<Order> = None;
-        for o in orders.iter() {
-            if o.order_id == order_id {
-                order = Some(o.clone());
-                break;
+        if !order.is_active || order.expires_at <= env.ledger().timestamp() {
+            panic!("Order inactive or expired");
+        }
+
+        let config: MarketConfig = env.storage().instance().get(&DataKey::Config).unwrap();
+        if config.is_paused {
+            panic!("Market paused");
+        }
+
+        // Compliance & Halt Checks
+        Self::check_trading_halt(&env, &config, &order.token_address);
+        Self::check_compliance(&env, &config, &taker, &order.token_address);
+
+        let remaining = order.amount - order.filled_amount;
+        if fill_amount > remaining {
+            panic!("Fill amount exceeds remaining");
+        }
+        if fill_amount < order.min_fill && fill_amount < remaining {
+            panic!("Fill amount below minimum fill");
+        }
+
+        // Settlement
+        let settlement_value = fill_amount * order.price;
+        let fee = (settlement_value * config.fee_rate_bps as i128) / 10000;
+        let net_value = settlement_value - fee;
+
+        let base_token = TokenClient::new(&env, &config.base_currency);
+        let rwa_token = RWATokenClient::new(&env, &order.token_address);
+
+        if order.side == Symbol::new(&env, "buy") {
+            // Maker was buyer (escrowed payment), Taker is seller
+            // Transfer RWA from Taker to Maker
+            rwa_token.transfer(&taker, &order.maker, &fill_amount);
+            // Transfer payment from Escrow to Taker
+            base_token.transfer(&env.current_contract_address(), &taker, &net_value);
+        } else {
+            // Maker was seller (escrowed tokens), Taker is buyer
+            // Transfer RWA from Escrow to Taker
+            rwa_token.transfer(&env.current_contract_address(), &taker, &fill_amount);
+            // Transfer payment from Taker to Maker
+            base_token.transfer(&taker, &order.maker, &net_value);
+        }
+
+        // Transfer fee
+        if fee > 0 {
+            if order.side == Symbol::new(&env, "buy") {
+                base_token.transfer(&env.current_contract_address(), &config.fee_recipient, &fee);
+            } else {
+                base_token.transfer(&taker, &config.fee_recipient, &fee);
             }
         }
-        let order = order.unwrap_or_else(|| panic!("Order not found"));
 
-        if order.trader != auth {
-            panic!("Unauthorized: Only order creator can cancel");
+        // Update Order
+        order.filled_amount += fill_amount;
+        if order.filled_amount == order.amount {
+            order.is_active = false;
         }
+        env.storage().temporary().set(&DataKey::Order(order_id), &order);
 
+        // Record Trade & Update VWAP/TWAP
+        Self::handle_trade_data(&env, order.token_address.clone(), fill_amount, order.price);
+
+        env.events().publish(
+            (Symbol::new(&env, "trade"), order.token_address),
+            (order_id, taker, fill_amount, order.price),
+        );
+    }
+
+    pub fn cancel_order(env: Env, maker: Address, order_id: u64) {
+        maker.require_auth();
+
+        let mut order: Order = env
+            .storage()
+            .temporary()
+            .get(&DataKey::Order(order_id))
+            .unwrap_or_else(|| panic!("Order not found"));
+
+        if order.maker != maker {
+            panic!("Unauthorized");
+        }
         if !order.is_active {
-            panic!("Order already cancelled or filled");
+            panic!("Order already inactive");
         }
 
-        let config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
+        let config: MarketConfig = env.storage().instance().get(&DataKey::Config).unwrap();
+        let remaining = order.amount - order.filled_amount;
 
-        if order.order_type == Symbol::new(&env, "buy") {
-            let base_client = TokenClient::new(&env, &config.base_currency);
-            let refund_amount = order.remaining_amount * order.price;
-            base_client.transfer(
-                &env.current_contract_address(),
-                &order.trader,
-                &refund_amount,
-            );
+        // Refund Escrow
+        if order.side == Symbol::new(&env, "buy") {
+            let refund = remaining * order.price;
+            let base_token = TokenClient::new(&env, &config.base_currency);
+            base_token.transfer(&env.current_contract_address(), &maker, &refund);
         } else {
-            let rwa_client = RWATokenClient::new(&env, &order.token_address);
-            rwa_client.transfer(
-                &env.current_contract_address(),
-                &order.trader,
-                &order.remaining_amount,
-            );
+            let rwa_token = RWATokenClient::new(&env, &order.token_address);
+            rwa_token.transfer(&env.current_contract_address(), &maker, &remaining);
         }
 
-        Self::update_order_status(env, order_id, false);
-    }
-
-    pub fn match_orders(env: Env, token_address: Address) {
-        let order_book: OrderBook =
-            env.storage()
-                .instance()
-                .get(&token_address)
-                .unwrap_or(OrderBook {
-                    token_address: token_address.clone(),
-                    buy_orders: Vec::new(&env),
-                    sell_orders: Vec::new(&env),
-                    last_price: 0,
-                    volume_24h: 0,
-                    last_updated: env.ledger().timestamp(),
-                });
-
-        if order_book.buy_orders.is_empty() || order_book.sell_orders.is_empty() {
-            return;
-        }
-
-        let config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
-
-        let mut trades_to_execute = Vec::<(Order, Order, i128)>::new(&env);
-
-        for buy_order in order_book.buy_orders.iter() {
-            if !buy_order.is_active || buy_order.remaining_amount == 0 {
-                continue;
-            }
-
-            for sell_order in order_book.sell_orders.iter() {
-                if !sell_order.is_active || sell_order.remaining_amount == 0 {
-                    continue;
-                }
-
-                if buy_order.price >= sell_order.price {
-                    let trade_amount = buy_order.remaining_amount.min(sell_order.remaining_amount);
-
-                    let spread_bps: i64 = if buy_order.price > 0 {
-                        (((buy_order.price - sell_order.price) * 10000) / buy_order.price) as i64
-                    } else {
-                        i64::MAX
-                    };
-                    if spread_bps > config.max_spread_bps {
-                        continue;
-                    }
-
-                    trades_to_execute.push_back((
-                        buy_order.clone(),
-                        sell_order.clone(),
-                        trade_amount,
-                    ));
-                }
-            }
-        }
-
-        for i in 0..trades_to_execute.len() {
-            let tri = trades_to_execute.get(i).unwrap();
-            let bo = tri.0.clone();
-            let so = tri.1.clone();
-            let amt = tri.2;
-            Self::execute_trade(env.clone(), bo, so, amt);
-        }
-    }
-
-    fn execute_trade(env: Env, buy_order: Order, sell_order: Order, trade_amount: i128) {
-        let config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
-
-        let trade_price = sell_order.price;
-        let trade_value = trade_amount * trade_price;
-        let fee_amount = (trade_value * config.fee_rate as i128) / 10000i128;
-        let net_value = trade_value - fee_amount;
-
-        let rwa_client = RWATokenClient::new(&env, &buy_order.token_address);
-        rwa_client.transfer(
-            &env.current_contract_address(),
-            &buy_order.trader,
-            &trade_amount,
-        );
-
-        let base_client = TokenClient::new(&env, &config.base_currency);
-        base_client.transfer(
-            &env.current_contract_address(),
-            &sell_order.trader,
-            &net_value,
-        );
-
-        if fee_amount > 0 {
-            base_client.transfer(
-                &env.current_contract_address(),
-                &config.fee_recipient,
-                &fee_amount,
-            );
-        }
-
-        Self::update_order_fill(env.clone(), buy_order.order_id, trade_amount);
-        Self::update_order_fill(env.clone(), sell_order.order_id, trade_amount);
-
-        let trade_count: u64 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "trade_count"))
-            .unwrap_or(0u64);
-
-        let trade_id = trade_count + 1;
-
-        let trade = Trade {
-            trade_id,
-            buy_order_id: buy_order.order_id,
-            sell_order_id: sell_order.order_id,
-            token_address: buy_order.token_address.clone(),
-            buyer: buy_order.trader,
-            seller: sell_order.trader,
-            amount: trade_amount,
-            price: trade_price,
-            total_value: trade_value,
-            fee_amount,
-            executed_at: env.ledger().timestamp(),
-        };
-
-        let mut trades: Vec<Trade> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "trades"))
-            .unwrap_or(Vec::new(&env));
-
-        trades.push_back(trade);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "trades"), &trades);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "trade_count"), &trade_id);
-
-        Self::update_order_book_after_trade(
-            env.clone(),
-            buy_order.token_address.clone(),
-            trade_price,
-            trade_value,
-        );
+        order.is_active = false;
+        env.storage().temporary().set(&DataKey::Order(order_id), &order);
 
         env.events().publish(
-            (Symbol::new(&env, "trade_executed"), buy_order.token_address),
-            (trade_id, trade_amount, trade_price),
         );
     }
 
-    fn update_order_book(env: Env, token_address: Address, new_order: Order) {
-        let mut order_book: OrderBook =
-            env.storage()
-                .instance()
-                .get(&token_address)
-                .unwrap_or(OrderBook {
-                    token_address: token_address.clone(),
-                    buy_orders: Vec::new(&env),
-                    sell_orders: Vec::new(&env),
-                    last_price: 0,
-                    volume_24h: 0,
-                    last_updated: env.ledger().timestamp(),
-                });
+    // Helper: VWAP & TWAP Recording
+    fn handle_trade_data(env: &Env, token: Address, amount: i128, price: i128) {
+        let mut trade_count: u64 = env.storage().instance().get(&DataKey::TradeCount).unwrap_or(0);
+        trade_count += 1;
+        env.storage().instance().set(&DataKey::TradeCount, &trade_count);
 
-        if new_order.order_type == Symbol::new(&env, "buy") {
-            order_book.buy_orders.push_back(new_order);
-        } else {
-            order_book.sell_orders.push_back(new_order);
-        }
+        let now = env.ledger().timestamp();
 
-        order_book.last_updated = env.ledger().timestamp();
-        env.storage().instance().set(&token_address, &order_book);
-    }
-
-    fn update_order_book_after_trade(env: Env, token_address: Address, price: i128, value: i128) {
-        let mut order_book: OrderBook =
-            env.storage()
-                .instance()
-                .get(&token_address)
-                .unwrap_or(OrderBook {
-                    token_address: token_address.clone(),
-                    buy_orders: Vec::new(&env),
-                    sell_orders: Vec::new(&env),
-                    last_price: 0,
-                    volume_24h: 0,
-                    last_updated: env.ledger().timestamp(),
-                });
-
-        order_book.last_price = price;
-        order_book.volume_24h += value;
-        order_book.last_updated = env.ledger().timestamp();
-
-        env.storage().instance().set(&token_address, &order_book);
-    }
-
-    fn update_order_fill(env: Env, order_id: u64, fill_amount: i128) {
-        let orders: Vec<Order> = env
+        // 1. Update VWAP (Volume Weighted Average Price)
+        // Store as (total_volume, total_value)
+        let vwap_key = DataKey::VWAP(token.clone());
+        let (mut total_vol, mut total_val): (i128, i128) = env
             .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
+            .persistent()
+            .get(&vwap_key)
+            .unwrap_or((0, 0));
+        
+        total_vol += amount;
+        total_val += amount * price;
+        env.storage().persistent().set(&vwap_key, &(total_vol, total_val));
 
-        let mut found = false;
-        let mut new_orders = Vec::<Order>::new(&env);
+        // 2. Update TWAP (Time Weighted Average Price)
+        // Store as (cumulative_price_time, last_price, last_time)
+        let twap_key = DataKey::PriceHistory(token.clone());
+        let (mut cum_price_time, last_price, last_time): (i128, i128, u64) = env
+            .storage()
+            .persistent()
+            .get(&twap_key)
+            .unwrap_or((0, price, now));
 
-        for order in orders.iter() {
-            if order.order_id == order_id {
-                let mut updated_order = order.clone();
-                updated_order.filled_amount += fill_amount;
-                updated_order.remaining_amount -= fill_amount;
+        let delta_t = (now - last_time) as i128;
+        cum_price_time += last_price * delta_t;
 
-                if updated_order.remaining_amount == 0 {
-                    updated_order.is_active = false;
-                }
+        env.storage().persistent().set(&twap_key, &(cum_price_time, price, now));
+    }
 
-                new_orders.push_back(updated_order);
-                found = true;
-            } else {
-                new_orders.push_back(order.clone());
+    pub fn get_vwap(env: Env, token: Address) -> i128 {
+        let (total_vol, total_val): (i128, i128) = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VWAP(token))
+            .unwrap_or((0, 0));
+        if total_vol == 0 {
+            return 0;
+        }
+        total_val / total_vol
+    }
+
+    pub fn get_twap(env: Env, token: Address, start_time: u64) -> i128 {
+        let (cum_price_time, last_price, last_time): (i128, i128, u64) = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PriceHistory(token))
+            .unwrap_or((0, 0, 0));
+        
+        let now = env.ledger().timestamp();
+        if now == start_time {
+            return last_price;
+        }
+        
+        let total_cum = cum_price_time + (last_price * (now - last_time) as i128);
+        // This is a simplified TWAP; a real one would need historical snapshots
+        total_cum / (now - start_time) as i128
+    }
+
+    // --- Private Logics ---
+
+    fn check_trading_halt(env: &Env, config: &MarketConfig, token: &Address) {
+        // Halt during dividend record dates
+        // This requires the DividendDistributor to provide a `is_record_date_active(token)` method
+        // For now, placeholder check
+        let distributor = DividendDistributorClient::new(env, &config.dividend_distributor);
+        // if distributor.is_record_date_active(token) { panic!("Trading halted: Dividend record date"); }
+    }
+
+    fn check_compliance(env: &Env, config: &MarketConfig, user: &Address, token: &Address) {
+        let registry = ComplianceRegistryClient::new(env, &config.compliance_registry);
+        let kyc = registry.get_kyc_status(user.clone());
+        if !kyc.is_verified {
+            panic!("KYC required");
+        }
+    }
+
+    fn check_price_deviation(env: &Env, token: &Address, price: i128, max_deviation_bps: i64) {
+        let vwap = env.storage().persistent().get(&DataKey::VWAP(token.clone())).unwrap_or(0);
+        if vwap > 0 {
+            let deviation = if price > vwap { price - vwap } else { vwap - price };
+            let deviation_bps = (deviation * 10000) / vwap;
+            if deviation_bps > max_deviation_bps as i128 {
+                panic!("Price deviation too high");
             }
         }
-
-        if found {
-            env.storage()
-                .instance()
-                .set(&Symbol::new(&env, "orders"), &new_orders);
-        }
-    }
-
-    fn update_order_status(env: Env, order_id: u64, is_active: bool) {
-        let orders: Vec<Order> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
-
-        let mut found = false;
-        let mut new_orders = Vec::<Order>::new(&env);
-
-        for order in orders.iter() {
-            if order.order_id == order_id {
-                let mut updated_order = order.clone();
-                updated_order.is_active = is_active;
-                new_orders.push_back(updated_order);
-                found = true;
-            } else {
-                new_orders.push_back(order.clone());
-            }
-        }
-
-        if found {
-            env.storage()
-                .instance()
-                .set(&Symbol::new(&env, "orders"), &new_orders);
-        }
-    }
-
-    pub fn get_order_book(env: Env, token_address: Address) -> OrderBook {
-        env.storage()
-            .instance()
-            .get(&token_address)
-            .unwrap_or(OrderBook {
-                token_address: token_address.clone(),
-                buy_orders: Vec::new(&env),
-                sell_orders: Vec::new(&env),
-                last_price: 0,
-                volume_24h: 0,
-                last_updated: env.ledger().timestamp(),
-            })
-    }
-
-    pub fn get_order(env: Env, order_id: u64) -> Order {
-        let orders: Vec<Order> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
-
-        for o in orders.iter() {
-            if o.order_id == order_id {
-                return o.clone();
-            }
-        }
-        panic!("Order not found")
-    }
-
-    pub fn get_user_orders(env: Env, user: Address) -> Vec<Order> {
-        let orders: Vec<Order> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "orders"))
-            .unwrap_or(Vec::new(&env));
-
-        let mut user_orders = Vec::<Order>::new(&env);
-        for order in orders.iter() {
-            if order.trader == user {
-                user_orders.push_back(order.clone());
-            }
-        }
-
-        user_orders
-    }
-
-    pub fn get_recent_trades(env: Env, token_address: Address, limit: u32) -> Vec<Trade> {
-        let trades: Vec<Trade> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "trades"))
-            .unwrap_or(Vec::new(&env));
-
-        let mut token_trades = Vec::<Trade>::new(&env);
-        let mut n: u32 = 0;
-        let mut i = trades.len();
-        while i > 0 {
-            i -= 1;
-            let trade = trades.get(i).unwrap();
-            if trade.token_address == token_address && n < limit {
-                token_trades.push_back(trade.clone());
-                n += 1;
-            }
-        }
-
-        token_trades
-    }
-
-    pub fn add_supported_token(env: Env, auth: Address, token_address: Address) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Market not initialized"));
-
-        assert_admin(&auth, &admin);
-
-        let mut config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
-
-        if !config
-            .supported_tokens
-            .iter()
-            .any(|t| t.clone() == token_address)
-        {
-            config.supported_tokens.push_back(token_address);
-            env.storage()
-                .instance()
-                .set(&Symbol::new(&env, "config"), &config);
-        }
-    }
-
-    pub fn set_pause_status(env: Env, auth: Address, paused: bool) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Market not initialized"));
-
-        assert_admin(&auth, &admin);
-
-        let mut config: MarketConfig = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "config"))
-            .unwrap_or_else(|| panic!("Config not found"));
-
-        config.is_paused = paused;
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "config"), &config);
-    }
-
-    pub fn update_config(env: Env, auth: Address, config: MarketConfig) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Market not initialized"));
-
-        assert_admin(&auth, &admin);
-
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "config"), &config);
     }
 }
