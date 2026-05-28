@@ -1,9 +1,7 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token::TokenClient, Address, Env, Map,
-    Symbol, Vec, log,
+    contract, contracterror, contractimpl, contracttype, token::TokenClient, Address, Env, Symbol,
 };
 
-use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
 use crate::dividend_distributor::DividendDistributorClient;
 use crate::compliance_registry::ComplianceRegistryClient;
