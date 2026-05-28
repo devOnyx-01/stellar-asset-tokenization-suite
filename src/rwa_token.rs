@@ -142,6 +142,10 @@ impl RWAToken {
             .get(&Symbol::new(&env, "token_info"))
             .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
+        if token_info.is_paused {
+            panic!("Token is paused");
+        }
+
         token_info.total_supply += amount;
         env.storage()
             .instance()
@@ -158,6 +162,16 @@ impl RWAToken {
     pub fn burn(env: Env, from: Address, amount: i128) {
         if amount <= 0 {
             panic_with_error!(&env, RWATokenError::InvalidAmount);
+        }
+
+        let token_info: TokenInfo = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "token_info"))
+            .unwrap_or_else(|| panic!("Token info not found"));
+
+        if token_info.is_paused {
+            panic!("Token is paused");
         }
 
         let mut balance = Self::get_balance(env.clone(), from.clone());
