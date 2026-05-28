@@ -6,6 +6,8 @@ use soroban_sdk::{
 use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
 
+const STORAGE_VERSION: u32 = 1;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum DividendError {
@@ -119,7 +121,47 @@ impl DividendDistributor {
             .set(&Symbol::new(&env, "last_auto_distribution_at"), &0u64);
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, "clm_tot"), &Map::<u64, i128>::new(&env));
+            .set(&Symbol::new(&env, "clm_tot"),             &Map::<u64, i128>::new(&env));
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "version"), &STORAGE_VERSION);
+    }
+
+    fn read_version(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(env, "version"))
+            .unwrap_or(0)
+    }
+
+    fn check_version(env: &Env) {
+        if Self::read_version(env) < STORAGE_VERSION {
+            panic!("Contract storage is outdated. Call migrate().");
+        }
+    }
+
+    pub fn migrate(env: Env, auth: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .unwrap_or_else(|| panic!("Distributor not initialized"));
+
+        assert_admin(&auth, &admin);
+
+        let ver = Self::read_version(&env);
+        if ver >= STORAGE_VERSION {
+            panic!("Already at latest version");
+        }
+
+        let mut current = ver;
+        while current < STORAGE_VERSION {
+            current += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "version"), &STORAGE_VERSION);
     }
 
     pub fn register_currency_token(
@@ -135,6 +177,8 @@ impl DividendDistributor {
             .unwrap_or_else(|| { panic_with_error!(&env, DividendError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let mut map: Map<Symbol, Address> = env
             .storage()
@@ -198,6 +242,8 @@ impl DividendDistributor {
 
         assert_admin(&env, &auth, &admin);
 
+        Self::check_version(&env);
+
         let config: DividendConfig = env
             .storage()
             .instance()
@@ -256,6 +302,8 @@ impl DividendDistributor {
             .unwrap_or_else(|| { panic_with_error!(&env, DividendError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let config: DividendConfig = env
             .storage()
@@ -334,6 +382,8 @@ impl DividendDistributor {
     }
 
     pub fn claim_dividend(env: Env, distribution_id: u64, claimer: Address) -> i128 {
+        Self::check_version(&env);
+
         let distributions: Vec<DividendDistribution> = env
             .storage()
             .instance()
@@ -577,6 +627,8 @@ impl DividendDistributor {
 
         assert_admin(&env, &auth, &admin);
 
+        Self::check_version(&env);
+
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "config"), &config);
@@ -590,6 +642,8 @@ impl DividendDistributor {
             .unwrap_or_else(|| { panic_with_error!(&env, DividendError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let distributions: Vec<DividendDistribution> = env
             .storage()

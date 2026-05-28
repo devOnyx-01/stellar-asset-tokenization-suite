@@ -4,6 +4,7 @@ use soroban_sdk::{
 
 use crate::auth::assert_admin;
 
+const STORAGE_VERSION: u32 = 1;
 #[contracttype]
 pub enum StorageKey {
     Custodian(Address),
@@ -358,6 +359,47 @@ impl CustodyValidator {
                 Symbol::new(&env, "US"),
             );
         }
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "version"), &STORAGE_VERSION);
+    }
+
+    fn read_version(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(env, "version"))
+            .unwrap_or(0)
+    }
+
+    fn check_version(env: &Env) {
+        if Self::read_version(env) < STORAGE_VERSION {
+            panic!("Contract storage is outdated. Call migrate().");
+        }
+    }
+
+    pub fn migrate(env: Env, auth: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .unwrap_or_else(|| panic!("Validator not initialized"));
+
+        assert_admin(&auth, &admin);
+
+        let ver = Self::read_version(&env);
+        if ver >= STORAGE_VERSION {
+            panic!("Already at latest version");
+        }
+
+        let mut current = ver;
+        while current < STORAGE_VERSION {
+            current += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "version"), &STORAGE_VERSION);
     }
 
     pub fn register_oracle(
@@ -374,6 +416,8 @@ impl CustodyValidator {
             .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         Self::put_oracle(env, oracle_address, name, jurisdiction);
     }
@@ -396,6 +440,8 @@ impl CustodyValidator {
             .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let custodian = CustodianRegistry {
             custodian_address: custodian_address.clone(),
@@ -436,6 +482,8 @@ impl CustodyValidator {
             .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let mut verification_configs: Map<Symbol, VerificationTypeConfig> = env
             .storage()
@@ -567,6 +615,8 @@ impl CustodyValidator {
 
         assert_admin(&env, &auth, &admin);
 
+        Self::check_version(&env);
+
         let mut disputes: Map<u64, DisputeRecord> = env
             .storage()
             .instance()
@@ -643,6 +693,9 @@ impl CustodyValidator {
     }
 
     pub fn submit_attestation(env: Env, attestation: CustodyAttestation) -> u64 {
+        Self::check_version(&env);
+
+        if !Self::verify_attestation(env.clone(), attestation.clone()) {
         if !Self::verify_attestation(&env, &attestation) {
             panic!("Invalid attestation");
         }
@@ -729,6 +782,15 @@ impl CustodyValidator {
         bond_amount: i128,
         evidence_hash: BytesN<32>,
     ) -> u64 {
+        Self::check_version(&env);
+
+        let attestations: Map<u64, CustodyAttestation> = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "attestations"))
+            .unwrap_or(Map::new(&env));
+
+        let attestation = attestations.get(attestation_id)
         let attestation = Self::read_attestation(&env, &attestation_id)
             .ok_or(CustodyError::DisputeNotFound)
             .unwrap();
@@ -995,6 +1057,8 @@ impl CustodyValidator {
 
         assert_admin(&env, &auth, &admin);
 
+        Self::check_version(&env);
+
         let insurance_integrations: Map<Address, InsuranceIntegration> = env
             .storage()
             .instance()
@@ -1035,6 +1099,8 @@ impl CustodyValidator {
             .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         let mut insurance_integrations: Map<Address, InsuranceIntegration> = env
             .storage()
@@ -1111,6 +1177,8 @@ impl CustodyValidator {
 
         assert_admin(&env, &auth, &admin);
 
+        Self::check_version(&env);
+
         let mut oracles: Map<Address, OracleInfo> = env
             .storage()
             .instance()
@@ -1143,6 +1211,8 @@ impl CustodyValidator {
         if reputation_score > 100 {
             panic_with_error!(&env, CustodyError::VerificationFailed);
         }
+
+        Self::check_version(&env);
 
         let mut oracles: Map<Address, OracleInfo> = env
             .storage()
@@ -1179,6 +1249,8 @@ impl CustodyValidator {
             .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::NotInitialized); });
 
         assert_admin(&env, &auth, &admin);
+
+        Self::check_version(&env);
 
         env.storage()
             .instance()
