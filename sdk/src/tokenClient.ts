@@ -18,7 +18,7 @@ import {
   RWASDKError, 
   ErrorCode 
 } from './types';
-import { RWASDKError as RWASDKErrorClass } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
 
 export class TokenClient {
   private server: Server;
@@ -422,7 +422,7 @@ export class TokenClient {
     try {
       // This would query transfer events from the contract
       // For now, return a placeholder implementation
-      throw new Error('getTransferHistory not implemented');
+      throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getTransferHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -483,19 +483,19 @@ export class TokenClient {
   private convertScValToAssetInfo(scVal: xdr.ScVal): AssetInfo {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToAssetInfo not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToAssetInfo not implemented');
   }
 
   private convertScValToBalance(scVal: xdr.ScVal): Balance {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToBalance not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToBalance not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
     // This would sign the transaction with the signer's key
     // For now, return a placeholder implementation
-    throw new Error('signTransaction not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
   private handleError(error: any): RWASDKErrorClass {
@@ -503,19 +503,27 @@ export class TokenClient {
       return error;
     }
 
-    // Convert different error types to RWASDKError
-    if (error.message?.includes('timeout')) {
-      return new RWASDKErrorClass(ErrorCode.TIMEOUT, error.message);
+    const message = error.message || String(error);
+
+    if (message.includes('timeout')) {
+      return new RWASDKErrorClass(ErrorCode.TIMEOUT, message);
     }
 
-    if (error.message?.includes('insufficient')) {
-      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, error.message);
+    if (message.includes('insufficient')) {
+      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, message);
     }
 
-    if (error.message?.includes('unauthorized')) {
-      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, error.message);
+    if (message.includes('unauthorized')) {
+      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, message);
     }
 
-    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, error.message);
+    // Try to parse Soroban contract error numbers (e.g. "ContractError(201)")
+    const match = message.match(/ContractError\((\d+)\)/);
+    if (match) {
+      const code = contractErrorToCode(parseInt(match[1]));
+      return new RWASDKErrorClass(code, message);
+    }
+
+    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, message);
   }
 }

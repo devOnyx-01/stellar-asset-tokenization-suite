@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec,
 };
 
 use crate::auth::assert_admin;
@@ -16,6 +16,9 @@ pub enum RWATokenError {
     AssetFrozen = 6,
     KYCRequired = 7,
     TransferRestriction = 8,
+    AlreadyInitialized = 9,
+    NotInitialized = 10,
+    TokenInfoNotFound = 11,
 }
 
 #[contracttype]
@@ -81,11 +84,11 @@ impl RWAToken {
             .instance()
             .has(&Symbol::new(&env, "initialized"))
         {
-            panic!("Token already initialized");
+            panic_with_error!(&env, RWATokenError::AlreadyInitialized);
         }
 
         if total_supply <= 0 || decimals > 18 {
-            panic!("Invalid token parameters");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         let token_info = TokenInfo {
@@ -122,22 +125,22 @@ impl RWAToken {
 
     pub fn mint(env: Env, auth: Address, to: Address, amount: i128) {
         if amount <= 0 {
-            panic!("Invalid amount");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::NotInitialized) });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.total_supply += amount;
         env.storage()
@@ -154,16 +157,16 @@ impl RWAToken {
 
     pub fn burn(env: Env, from: Address, amount: i128) {
         if amount <= 0 {
-            panic!("Invalid amount");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         let mut balance = Self::get_balance(env.clone(), from.clone());
         if balance.amount < amount {
-            panic!("Insufficient balance");
+            panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
         if !Self::check_outbound_compliance(env.clone(), from.clone(), amount) {
-            panic!("Compliance check failed");
+            panic_with_error!(&env, RWATokenError::ComplianceCheckFailed);
         }
 
         balance.amount -= amount;
@@ -173,7 +176,7 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.total_supply -= amount;
         env.storage()
@@ -186,28 +189,28 @@ impl RWAToken {
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         if amount <= 0 {
-            panic!("Invalid amount");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         let token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         if token_info.is_paused || token_info.is_frozen {
-            panic!("Token transfers are paused or frozen");
+            panic_with_error!(&env, RWATokenError::TransferPaused);
         }
 
         if !Self::check_transfer_compliance(env.clone(), from.clone(), to.clone(), amount) {
-            panic!("Compliance check failed");
+            panic_with_error!(&env, RWATokenError::ComplianceCheckFailed);
         }
 
         let mut from_balance = Self::get_balance(env.clone(), from.clone());
         let mut to_balance = Self::get_balance(env.clone(), to.clone());
 
         if from_balance.amount < amount {
-            panic!("Insufficient balance");
+            panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
         from_balance.amount -= amount;
@@ -224,7 +227,7 @@ impl RWAToken {
         env.storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"))
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); })
     }
 
     pub fn get_balance(env: Env, address: Address) -> Balance {
@@ -238,17 +241,17 @@ impl RWAToken {
 
     pub fn lock_tokens(env: Env, auth: Address, owner: Address, amount: i128, lock_period: u64) {
         if amount <= 0 {
-            panic!("Invalid amount");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         auth.require_auth();
         if auth != owner {
-            panic!("Unauthorized");
+            panic_with_error!(&env, RWATokenError::Unauthorized);
         }
 
         let mut balance = Self::get_balance(env.clone(), owner.clone());
         if balance.amount < amount {
-            panic!("Insufficient balance");
+            panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
         balance.amount -= amount;
@@ -280,17 +283,17 @@ impl RWAToken {
 
     pub fn unlock_tokens(env: Env, auth: Address, owner: Address, amount: i128) {
         if amount <= 0 {
-            panic!("Invalid amount");
+            panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
 
         auth.require_auth();
         if auth != owner {
-            panic!("Unauthorized");
+            panic_with_error!(&env, RWATokenError::Unauthorized);
         }
 
         let mut balance = Self::get_balance(env.clone(), owner.clone());
         if balance.locked_amount < amount {
-            panic!("Insufficient locked tokens");
+            panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
         balance.locked_amount -= amount;
@@ -308,15 +311,15 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.is_paused = true;
         env.storage()
@@ -329,15 +332,15 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.is_paused = false;
         env.storage()
@@ -350,15 +353,15 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.is_frozen = true;
         env.storage()
@@ -371,15 +374,15 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut token_info: TokenInfo = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         token_info.is_frozen = false;
         env.storage()
@@ -392,7 +395,7 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         let registry = ComplianceRegistryClient::new(&env, &token_info.compliance_registry);
         registry.check_compliance(&from, &to, &amount)
@@ -403,7 +406,7 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         let registry = ComplianceRegistryClient::new(&env, &token_info.compliance_registry);
         registry.check_outbound_participant(&from, &amount)

@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec,
 };
 
 use crate::auth::assert_admin;
@@ -14,6 +14,8 @@ pub enum ComplianceError {
     InvalidJurisdiction = 5,
     AccreditationRequired = 6,
     TransferLimitExceeded = 7,
+    AlreadyInitialized = 8,
+    NotInitialized = 9,
 }
 
 #[contracttype]
@@ -73,7 +75,7 @@ impl ComplianceRegistry {
             .instance()
             .has(&Symbol::new(&env, "initialized"))
         {
-            panic!("Registry already initialized");
+            panic_with_error!(&env, ComplianceError::AlreadyInitialized);
         }
 
         env.storage()
@@ -156,9 +158,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         env.storage().instance().set(&user, &kyc_status);
 
@@ -185,9 +187,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut blacklist: Vec<Address> = env
             .storage()
@@ -209,9 +211,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let blacklist: Vec<Address> = env
             .storage()
@@ -245,9 +247,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let mut whitelist: Vec<Address> = env
             .storage()
@@ -271,9 +273,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let whitelist: Vec<Address> = env
             .storage()
@@ -532,9 +534,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let map_key = Symbol::new(&env, "xfer_lim");
         let mut map: Map<Address, TransferLimits> = env
@@ -558,9 +560,9 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let rules: Vec<ComplianceRule> = env
             .storage()

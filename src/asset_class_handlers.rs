@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec, BytesN,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, BytesN,
 };
 
 use crate::asset_factory::{AssetClass, AssetConfig, ComplianceRules, DividendSchedule};
@@ -15,6 +15,8 @@ pub enum AssetClassError {
     InvalidVintage = 6,
     UnauthorizedAccess = 7,
     InvalidParameters = 8,
+    InvalidRegulationFramework = 9,
+    InvalidVerificationStandard = 10,
 }
 
 #[contracttype]
@@ -96,12 +98,12 @@ impl AssetClassHandlers {
     ) -> AssetConfig {
         // Validate location oracle
         if real_estate_config.location_oracle == Address::from_contract_id(&[0u8; 32]) {
-            panic!("Invalid location oracle");
+            panic_with_error!(&env, AssetClassError::InvalidLocation);
         }
 
         // Validate rental yield rate (should be between 0 and 10000 basis points)
         if real_estate_config.rental_yield_rate < 0 || real_estate_config.rental_yield_rate > 10000 {
-            panic!("Invalid rental yield rate");
+            panic_with_error!(&env, AssetClassError::InvalidParameters);
         }
 
         // Add real estate specific metadata
@@ -148,7 +150,7 @@ impl AssetClassHandlers {
         ]);
         
         if !valid_grades.contains(&commodity_config.purity_grade) {
-            panic!("Invalid purity grade");
+            panic_with_error!(&env, AssetClassError::InvalidPurityGrade);
         }
 
         // Add commodity specific metadata
@@ -186,7 +188,7 @@ impl AssetClassHandlers {
         
         // Validate due date is in the future
         if invoice_config.due_date <= current_time {
-            panic!("Due date must be in the future");
+            panic_with_error!(&env, AssetClassError::InvalidDueDate);
         }
 
         // Validate credit rating
@@ -201,7 +203,7 @@ impl AssetClassHandlers {
         ]);
         
         if !valid_ratings.contains(&invoice_config.credit_rating) {
-            panic!("Invalid credit rating");
+            panic_with_error!(&env, AssetClassError::InvalidCreditRating);
         }
 
         // Add invoice specific metadata
@@ -248,7 +250,7 @@ impl AssetClassHandlers {
         ]);
         
         if !valid_frameworks.contains(&security_config.regulation_framework) {
-            panic!("Invalid regulation framework");
+            panic_with_error!(&env, AssetClassError::InvalidRegulationFramework);
         }
 
         // Update compliance rules for securities
@@ -290,7 +292,7 @@ impl AssetClassHandlers {
     ) -> AssetConfig {
         // Validate provenance hash is not empty
         if art_config.provenance_hash == BytesN::from_array(&env, &[0u8; 32]) {
-            panic!("Invalid provenance hash");
+            panic_with_error!(&env, AssetClassError::InvalidProvenance);
         }
 
         // Add art specific metadata
@@ -331,7 +333,7 @@ impl AssetClassHandlers {
         // Validate vintage year is reasonable
         let current_year = (env.ledger().timestamp() / 31536000) + 1970; // Approximate current year
         if carbon_config.vintage_year < 1990 || carbon_config.vintage_year > current_year {
-            panic!("Invalid vintage year");
+            panic_with_error!(&env, AssetClassError::InvalidVintage);
         }
 
         // Validate verification standard
@@ -343,7 +345,7 @@ impl AssetClassHandlers {
         ]);
         
         if !valid_standards.contains(&carbon_config.verification_standard) {
-            panic!("Invalid verification standard");
+            panic_with_error!(&env, AssetClassError::InvalidVerificationStandard);
         }
 
         // Add carbon credit specific metadata
