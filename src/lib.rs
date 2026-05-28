@@ -74,11 +74,23 @@ impl StellarRWASuite {
         auth: Address,
         market: Address,
         admin: Address,
+        base_currency: Address,
+        compliance_registry: Address,
+        dividend_distributor: Address,
         fee_rate: i64,
         min_order_size: i128,
+        max_price_deviation_bps: i64,
     ) {
         let c = SecondaryMarketClient::new(&env, &market);
-        c.initialize(&auth, &admin, &fee_rate, &min_order_size);
+        c.initialize(
+            &admin,
+            &base_currency,
+            &compliance_registry,
+            &dividend_distributor,
+            &fee_rate,
+            &min_order_size,
+            &max_price_deviation_bps,
+        );
     }
 
     pub fn init_custody_validator(

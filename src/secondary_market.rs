@@ -89,6 +89,7 @@ impl SecondaryMarket {
         dividend_distributor: Address,
         fee_rate_bps: i64,
         min_order_size: i128,
+        max_price_deviation_bps: i64,
     ) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Already initialized");
@@ -99,7 +100,7 @@ impl SecondaryMarket {
             fee_rate_bps,
             fee_recipient: admin.clone(),
             min_order_size,
-            max_price_deviation_bps: 2000, // 20%
+            max_price_deviation_bps,
             is_paused: false,
             base_currency,
             compliance_registry,
@@ -110,6 +111,18 @@ impl SecondaryMarket {
         env.storage().instance().set(&DataKey::Config, &config);
         env.storage().instance().set(&DataKey::OrderCount, &0u64);
         env.storage().instance().set(&DataKey::TradeCount, &0u64);
+    }
+
+    pub fn update_config(env: Env, auth: Address, config: MarketConfig) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert_admin(&auth, &admin);
+        env.storage().instance().set(&DataKey::Config, &config);
+    }
+
+    pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert_admin(&auth, &admin);
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
     }
 
     pub fn place_order(
