@@ -210,7 +210,7 @@ impl ComplianceRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "kyc_updated"), user),
-            (kyc_status.is_verified, kyc_status.verification_level),
+            (kyc_status.is_verified, kyc_status.verification_level, env.ledger().timestamp()),
         );
     }
 
@@ -250,7 +250,7 @@ impl ComplianceRegistry {
             .set(&Symbol::new(&env, "blacklist"), &blacklist);
 
         env.events()
-            .publish((Symbol::new(&env, "blacklisted"), address), reason);
+            .publish((Symbol::new(&env, "blacklisted"), address), (reason, env.ledger().timestamp()));
     }
 
     pub fn remove_from_blacklist(env: Env, auth: Address, address: Address) {
@@ -287,7 +287,7 @@ impl ComplianceRegistry {
                 .set(&Symbol::new(&env, "blacklist"), &new_blacklist);
             env.events().publish(
                 (Symbol::new(&env, "unblacklisted"), address),
-                Symbol::new(&env, "removed"),
+                (Symbol::new(&env, "removed"), env.ledger().timestamp()),
             );
         }
     }
@@ -317,7 +317,7 @@ impl ComplianceRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "whitelisted"), address),
-            Symbol::new(&env, "added"),
+            (Symbol::new(&env, "added"), env.ledger().timestamp()),
         );
     }
 
@@ -355,7 +355,7 @@ impl ComplianceRegistry {
                 .set(&Symbol::new(&env, "whitelist"), &new_whitelist);
             env.events().publish(
                 (Symbol::new(&env, "unwhitelisted"), address),
-                Symbol::new(&env, "removed"),
+                (Symbol::new(&env, "removed"), env.ledger().timestamp()),
             );
         }
     }

@@ -377,7 +377,7 @@ impl DividendDistributor {
 
         env.events().publish(
             (Symbol::new(&env, "distribution_created"), token_address),
-            (distribution_id, amount, currency),
+            (distribution_id, amount, currency, env.ledger().timestamp()),
         );
 
         distribution_id
@@ -477,7 +477,7 @@ impl DividendDistributor {
 
         env.events().publish(
             (Symbol::new(&env, "dividend_claimed"), claimer),
-            (distribution_id, net_amount, dist_currency),
+            (distribution_id, net_amount, dist_currency, current_time),
         );
 
         net_amount

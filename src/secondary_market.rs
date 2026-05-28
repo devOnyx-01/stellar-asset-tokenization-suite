@@ -241,7 +241,7 @@ impl SecondaryMarket {
 
         env.events().publish(
             (Symbol::new(&env, "order_placed"), token_address),
-            (count, maker, side, price, amount),
+            (count, maker, side, price, amount, env.ledger().timestamp()),
         );
 
         count
@@ -322,7 +322,7 @@ impl SecondaryMarket {
 
         env.events().publish(
             (Symbol::new(&env, "trade"), order.token_address),
-            (order_id, taker, fill_amount, order.price),
+            (order_id, taker, fill_amount, order.price, env.ledger().timestamp()),
         );
     }
 
@@ -361,6 +361,8 @@ impl SecondaryMarket {
         env.storage().temporary().set(&DataKey::Order(order_id), &order);
 
         env.events().publish(
+            (Symbol::new(&env, "order_cancelled"), order.token_address),
+            (order_id, maker, order.side, order.filled_amount, env.ledger().timestamp()),
         );
     }
 

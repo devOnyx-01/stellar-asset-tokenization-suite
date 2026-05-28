@@ -685,9 +685,9 @@ impl CustodyValidator {
         env.events().publish(
             (
                 Symbol::new(&env, "dispute_resolved"),
-                dispute.dispute_id,
+                dispute.custodian.clone(),
             ),
-            (resolution, dispute.challenger, dispute.custodian),
+            (dispute.dispute_id, resolution, dispute.challenger, dispute.custodian, env.ledger().timestamp()),
         );
     }
 
@@ -753,7 +753,7 @@ impl CustodyValidator {
                 Symbol::new(&env, "attestation_submitted"),
                 asset_id,
             ),
-            (attestation_id, custodian, value),
+            (attestation_id, custodian, value, env.ledger().timestamp()),
         );
 
         attestation_id
@@ -880,7 +880,7 @@ impl CustodyValidator {
                 Symbol::new(&env, "dispute_initiated"),
                 attestation.asset_id,
             ),
-            (dispute_id, challenger, attestation.custodian),
+            (dispute_id, challenger, attestation.custodian, env.ledger().timestamp()),
         );
 
         dispute_id
@@ -1105,7 +1105,7 @@ impl CustodyValidator {
                     Symbol::new(&env, "insurance_claim_triggered"),
                     asset_id,
                 ),
-                (insurance.provider, claim_reason, evidence_hash),
+                (insurance.provider, claim_reason, evidence_hash, env.ledger().timestamp()),
             );
         } else {
             panic_with_error!(&env, CustodyError::InsuranceClaimFailed);

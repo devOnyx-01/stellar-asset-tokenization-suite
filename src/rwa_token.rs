@@ -193,8 +193,10 @@ impl RWAToken {
         balance.amount += amount;
         env.storage().instance().set(&to, &balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "mint"), to.clone()), amount);
+        env.events().publish(
+            (Symbol::new(&env, "mint"), to.clone()),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn burn(env: Env, from: Address, amount: i128) {
@@ -237,8 +239,10 @@ impl RWAToken {
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
 
-        env.events()
-            .publish((Symbol::new(&env, "burn"), from.clone()), amount);
+        env.events().publish(
+            (Symbol::new(&env, "burn"), from.clone()),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
@@ -275,8 +279,10 @@ impl RWAToken {
         env.storage().instance().set(&from, &from_balance);
         env.storage().instance().set(&to, &to_balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "transfer"), from, to), amount);
+        env.events().publish(
+            (Symbol::new(&env, "transfer"), from.clone()),
+            (to, amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn get_token_info(env: Env) -> TokenInfo {
@@ -335,7 +341,7 @@ impl RWAToken {
 
         env.events().publish(
             (Symbol::new(&env, "tokens_locked"), owner),
-            (amount, lock_period),
+            (amount, lock_period, env.ledger().timestamp()),
         );
     }
 
@@ -362,8 +368,10 @@ impl RWAToken {
 
         env.storage().instance().set(&owner, &balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "tokens_unlocked"), owner), amount);
+        env.events().publish(
+            (Symbol::new(&env, "tokens_unlocked"), owner),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn pause(env: Env, auth: Address) {
