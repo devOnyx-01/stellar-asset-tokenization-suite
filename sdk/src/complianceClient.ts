@@ -20,7 +20,7 @@ import {
   RWASDKError, 
   ErrorCode 
 } from './types';
-import { RWASDKError as RWASDKErrorClass } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
 
 export class ComplianceClient {
   private server: Server;
@@ -445,7 +445,7 @@ export class ComplianceClient {
     try {
       // This would query compliance events from the contract
       // For now, return a placeholder implementation
-      throw new Error('getUserComplianceHistory not implemented');
+      throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getUserComplianceHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -498,37 +498,37 @@ export class ComplianceClient {
   private convertKYCStatusToScVal(kycStatus: KYCStatus): xdr.ScVal {
     // This would convert KYCStatus to ScVal
     // For now, return a placeholder implementation
-    throw new Error('convertKYCStatusToScVal not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertKYCStatusToScVal not implemented');
   }
 
   private convertTransferLimitsToScVal(limits: TransferLimits): xdr.ScVal {
     // This would convert TransferLimits to ScVal
     // For now, return a placeholder implementation
-    throw new Error('convertTransferLimitsToScVal not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertTransferLimitsToScVal not implemented');
   }
 
   private convertComplianceRuleToScVal(rule: ComplianceRule): xdr.ScVal {
     // This would convert ComplianceRule to ScVal
     // For now, return a placeholder implementation
-    throw new Error('convertComplianceRuleToScVal not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertComplianceRuleToScVal not implemented');
   }
 
   private convertScValToKYCStatus(scVal: xdr.ScVal): KYCStatus {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToKYCStatus not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToKYCStatus not implemented');
   }
 
   private convertScValToComplianceRuleArray(scVal: xdr.ScVal): ComplianceRule[] {
     // This would parse the ScVal array returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToComplianceRuleArray not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToComplianceRuleArray not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
     // This would sign the transaction with the signer's key
     // For now, return a placeholder implementation
-    throw new Error('signTransaction not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
   private handleError(error: any): RWASDKErrorClass {

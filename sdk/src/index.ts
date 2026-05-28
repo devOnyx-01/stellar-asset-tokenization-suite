@@ -7,6 +7,8 @@ import { MarketClient } from './marketClient';
 import { ComplianceClient } from './complianceClient';
 import { CustodyClient } from './custody';
 import { CustodyMonitoring } from './custodyMonitoring';
+import { InvalidParametersError, RWASDKError } from './errors';
+import { ErrorCode } from './types';
 
 // Type exports
 export * from './types';
@@ -115,7 +117,7 @@ export class StellarRWASDK {
         protocolVersion: network.protocolVersion
       };
     } catch (error) {
-      throw new Error(`Failed to get network info: ${error.message}`);
+      throw new RWASDKError(ErrorCode.NETWORK_ERROR, `Failed to get network info: ${error.message}`);
     }
   }
 
@@ -124,23 +126,23 @@ export class StellarRWASDK {
    */
   validateConfig(): void {
     if (!this.config.stellar) {
-      throw new Error('Stellar configuration is required');
+      throw new InvalidParametersError('Stellar configuration is required');
     }
 
     if (!this.config.stellar.network) {
-      throw new Error('Stellar network is required');
+      throw new InvalidParametersError('Stellar network is required');
     }
 
     if (!this.config.stellar.serverUrl) {
-      throw new Error('Stellar server URL is required');
+      throw new InvalidParametersError('Stellar server URL is required');
     }
 
     if (!this.config.stellar.passphrase) {
-      throw new Error('Stellar passphrase is required');
+      throw new InvalidParametersError('Stellar passphrase is required');
     }
 
     if (!this.config.contracts) {
-      throw new Error('Contracts configuration is required');
+      throw new InvalidParametersError('Contracts configuration is required');
     }
 
     const requiredContracts = [
@@ -153,7 +155,7 @@ export class StellarRWASDK {
 
     for (const contract of requiredContracts) {
       if (!this.config.contracts[contract]) {
-        throw new Error(`${contract} contract address is required`);
+        throw new InvalidParametersError(`${contract} contract address is required`);
       }
     }
   }
@@ -214,7 +216,7 @@ export class StellarRWASDK {
         marketHash
       };
     } catch (error) {
-      throw new Error(`Complete deployment failed: ${error.message}`);
+      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Complete deployment failed: ${error.message}`);
     }
   }
 
@@ -236,9 +238,9 @@ export class StellarRWASDK {
     try {
       // This would aggregate data from all contracts
       // For now, return a placeholder implementation
-      throw new Error('getUserPortfolio not implemented');
+      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'getUserPortfolio not implemented');
     } catch (error) {
-      throw new Error(`Failed to get user portfolio: ${error.message}`);
+      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to get user portfolio: ${error.message}`);
     }
   }
 
@@ -258,9 +260,9 @@ export class StellarRWASDK {
     try {
       // This would aggregate data from all contracts
       // For now, return a placeholder implementation
-      throw new Error('getPlatformStats not implemented');
+      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'getPlatformStats not implemented');
     } catch (error) {
-      throw new Error(`Failed to get platform stats: ${error.message}`);
+      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to get platform stats: ${error.message}`);
     }
   }
 }
