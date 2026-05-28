@@ -3,7 +3,6 @@ use soroban_sdk::{
 };
 
 use crate::asset_factory::{AssetClass, AssetConfig, ComplianceRules, DividendSchedule};
-use crate::auth::assert_admin;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
