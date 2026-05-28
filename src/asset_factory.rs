@@ -2,7 +2,6 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, BytesN,
 };
 
-use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
 use crate::RwaDeploySpec;
 
@@ -101,6 +100,8 @@ pub struct AssetFactory;
 #[contractimpl]
 impl AssetFactory {
     pub fn initialize(env: Env, auth: Address, admin: Address) {
+        crate::shared_admin::write_admin(&env, &auth, &admin);
+        
         auth.require_auth();
         if env.storage().instance().has(&Symbol::new(&env, "admin")) {
             panic_with_error!(&env, AssetFactoryError::AlreadyInitialized);
@@ -128,6 +129,9 @@ impl AssetFactory {
             .set(&Symbol::new(&env, "governance_threshold"), &6600u32); // 66% in basis points
     }
 
+    /// Create a new RWA asset with deterministic address deployment
+    pub fn create_asset(env: Env, auth: Address, config: AssetConfig) -> Address {
+        crate::shared_admin::require_admin(&env, &auth);
     fn read_version(env: &Env) -> u32 {
         env.storage()
             .instance()
@@ -281,6 +285,7 @@ impl AssetFactory {
             panic_with_error!(&env, AssetFactoryError::InvalidParameters);
         }
 
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -362,6 +367,7 @@ impl AssetFactory {
     }
 
     pub fn set_asset_pause_status(env: Env, auth: Address, symbol: Symbol, paused: bool) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -384,6 +390,7 @@ impl AssetFactory {
     }
 
     pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -401,6 +408,7 @@ impl AssetFactory {
 
     /// Register a new template for an asset class
     pub fn register_template(env: Env, auth: Address, template: AssetTemplate) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -435,6 +443,7 @@ impl AssetFactory {
 
     /// Upgrade an asset with governance approval
     pub fn upgrade_asset(env: Env, auth: Address, symbol: Symbol, new_wasm_hash: BytesN<32>) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -488,6 +497,7 @@ impl AssetFactory {
 
     /// Emergency pause all assets
     pub fn emergency_pause_all(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()

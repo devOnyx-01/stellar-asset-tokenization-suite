@@ -3,7 +3,6 @@ use soroban_sdk::{
     Symbol, Vec,
 };
 
-use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
 
 const STORAGE_VERSION: u32 = 1;
@@ -170,6 +169,7 @@ impl DividendDistributor {
         currency: Symbol,
         token_address: Address,
     ) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -234,6 +234,7 @@ impl DividendDistributor {
         claim_deadline: u64,
         metadata: Map<Symbol, Symbol>,
     ) -> Vec<u64> {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -295,6 +296,7 @@ impl DividendDistributor {
             panic_with_error!(&env, DividendError::InvalidAmount);
         }
 
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -619,6 +621,7 @@ impl DividendDistributor {
     }
 
     pub fn update_config(env: Env, auth: Address, config: DividendConfig) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -635,6 +638,7 @@ impl DividendDistributor {
     }
 
     pub fn deactivate_distribution(env: Env, auth: Address, distribution_id: u64) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()

@@ -8,6 +8,13 @@ mod custody_validator;
 mod dividend_distributor;
 mod rwa_token;
 mod secondary_market;
+pub mod shared_admin;
+pub mod real_estate;
+pub mod commodity;
+pub mod invoice;
+pub mod security;
+pub mod art;
+pub mod carbon_credit;
 
 use asset_factory::AssetFactoryClient;
 use compliance_registry::ComplianceRegistryClient;

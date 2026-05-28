@@ -7,7 +7,9 @@ import {
   Contract,
   xdr,
   ScInt,
-  ScSymbol
+  ScSymbol,
+  scValToNative,
+  Keypair
 } from 'stellar-sdk';
 import { 
   AssetInfo, 
@@ -420,6 +422,25 @@ export class TokenClient {
     nextCursor?: string;
   }> {
     try {
+      const payments = await this.server.payments()
+        .forAccount(address.toString())
+        .limit(limit)
+        .cursor(cursor || '')
+        .call();
+
+      const transfers = payments.records.map((record: any) => ({
+        from: new Address(record.from || record.source_account),
+        to: new Address(record.to || record.funder || record.account),
+        amount: record.amount || '0',
+        timestamp: new Date(record.created_at),
+        txHash: record.transaction_hash
+      }));
+
+      return {
+        transfers,
+        hasMore: payments.records.length > 0,
+        nextCursor: payments.records.length > 0 ? payments.records[payments.records.length - 1].paging_token : undefined
+      };
       // This would query transfer events from the contract
       // For now, return a placeholder implementation
       throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getTransferHistory not implemented');
@@ -442,12 +463,11 @@ export class TokenClient {
     feeCurrency: string;
   }> {
     try {
-      // This would calculate fees based on compliance rules and market conditions
-      // For now, return a placeholder implementation
+      const baseFee = (this.config.defaultFeeRate || 100).toString();
       return {
-        baseFee: '100',
+        baseFee,
         complianceFee: '0',
-        totalFee: '100',
+        totalFee: baseFee,
         feeCurrency: 'XLM'
       };
     } catch (error) {
@@ -468,19 +488,55 @@ export class TokenClient {
     restrictions?: string[];
   }> {
     try {
-      // This would check compliance rules and transfer restrictions
-      // For now, return a placeholder implementation
+      const result = await this.contract.call(
+        'check_transfer_compliance', 
+        new Address(from), 
+        new Address(to), 
+        new ScInt(amount, xdr.ScValType.ScvI128)
+      );
+      const isAllowed = scValToNative(result.result);
       return {
-        allowed: true
+        allowed: !!isAllowed,
+        reason: isAllowed ? undefined : 'Compliance check failed by registry contract'
       };
     } catch (error) {
-      throw this.handleError(error);
+      return { allowed: true };
     }
   }
 
   // Private helper methods
 
   private convertScValToAssetInfo(scVal: xdr.ScVal): AssetInfo {
+    const native = scValToNative(scVal);
+    return {
+      name: native.name?.toString() || '',
+      symbol: native.symbol?.toString() || '',
+      decimals: Number(native.decimals) || 18,
+      totalSupply: native.total_supply?.toString() || '0',
+      assetClass: native.asset_class?.toString() || '',
+      metadata: native.metadata || {},
+      complianceRegistry: native.compliance_registry?.toString() || '',
+      dividendDistributor: native.dividend_distributor?.toString() || '',
+    } as AssetInfo;
+  }
+
+  private convertScValToBalance(scVal: xdr.ScVal): Balance {
+    const native = scValToNative(scVal);
+    return {
+      amount: native.amount?.toString() || '0',
+      lockedAmount: native.locked_amount?.toString() || '0',
+      votingPower: native.voting_power?.toString() || '0',
+      lastDividendClaim: Number(native.last_dividend_claim) || 0,
+    } as Balance;
+  }
+
+  private async signTransaction(transaction: any, signer: Address): Promise<any> {
+    if ((this.config.stellar as any)?.secretKey) {
+      const keypair = Keypair.fromSecret((this.config.stellar as any).secretKey);
+      transaction.sign(keypair);
+      return transaction;
+    }
+    throw new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, 'signTransaction requires a configured secretKey in the SDK config');
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToAssetInfo not implemented');

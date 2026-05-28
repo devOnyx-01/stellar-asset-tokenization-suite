@@ -2,7 +2,6 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec,
 };
 
-use crate::auth::assert_admin;
 use crate::compliance_registry::ComplianceRegistryClient;
 
 const STORAGE_VERSION: u32 = 1;
@@ -135,6 +134,7 @@ impl RWAToken {
         }
     }
 
+        crate::shared_admin::require_admin(&env, &auth);
     pub fn migrate(env: Env, auth: Address) {
         let admin: Address = env
             .storage()
@@ -367,6 +367,7 @@ impl RWAToken {
     }
 
     pub fn pause(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         Self::check_version(&env);
 
         let admin: Address = env
@@ -390,6 +391,7 @@ impl RWAToken {
     }
 
     pub fn unpause(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         Self::check_version(&env);
 
         let admin: Address = env
@@ -413,6 +415,7 @@ impl RWAToken {
     }
 
     pub fn freeze(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         Self::check_version(&env);
 
         let admin: Address = env
@@ -436,6 +439,7 @@ impl RWAToken {
     }
 
     pub fn unfreeze(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         Self::check_version(&env);
 
         let admin: Address = env
