@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Env, Symbol, Vec, panic_with_error};
+use soroban_sdk::{contracttype, Env, Symbol, Vec, panic_with_error, String};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
@@ -40,10 +40,10 @@ pub fn create_security_config(
     compliance_rules.holding_period_days = security_config.holding_period_days;
 
     let mut metadata = base_config.metadata;
-    metadata.set(Symbol::new(&env, "equity_type"), security_config.equity_type);
-    metadata.set(Symbol::new(&env, "regulation_framework"), security_config.regulation_framework);
-    metadata.set(Symbol::new(&env, "isin"), security_config.isin);
-    metadata.set(Symbol::new(&env, "regulatory_reporting"), Symbol::new(&env, &security_config.regulatory_reporting.to_string()));
+    metadata.set(Symbol::new(&env, "equity_type"), String::from_str(&env, &security_config.equity_type.to_string()));
+    metadata.set(Symbol::new(&env, "regulation_framework"), String::from_str(&env, &security_config.regulation_framework.to_string()));
+    metadata.set(Symbol::new(&env, "isin"), String::from_str(&env, &security_config.isin.to_string()));
+    metadata.set(Symbol::new(&env, "regulatory_reporting"), String::from_str(&env, &security_config.regulatory_reporting.to_string()));
 
     AssetConfig {
         compliance_rules,

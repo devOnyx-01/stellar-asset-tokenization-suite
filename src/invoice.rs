@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error};
+use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error, String};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
@@ -45,11 +45,11 @@ pub fn create_invoice_config(
     }
 
     let mut metadata = base_config.metadata;
-    metadata.set(Symbol::new(&env, "invoice_number"), invoice_config.invoice_number);
-    metadata.set(Symbol::new(&env, "debtor_address"), Symbol::new(&env, &invoice_config.debtor_address.to_string()));
-    metadata.set(Symbol::new(&env, "due_date"), Symbol::new(&env, &invoice_config.due_date.to_string()));
-    metadata.set(Symbol::new(&env, "credit_rating"), invoice_config.credit_rating);
-    metadata.set(Symbol::new(&env, "invoice_amount"), Symbol::new(&env, &invoice_config.invoice_amount.to_string()));
+    metadata.set(Symbol::new(&env, "invoice_number"), String::from_str(&env, &invoice_config.invoice_number.to_string()));
+    metadata.set(Symbol::new(&env, "debtor_address"), String::from_str(&env, &format!("{:?}", invoice_config.debtor_address)));
+    metadata.set(Symbol::new(&env, "due_date"), String::from_str(&env, &invoice_config.due_date.to_string()));
+    metadata.set(Symbol::new(&env, "credit_rating"), String::from_str(&env, &invoice_config.credit_rating.to_string()));
+    metadata.set(Symbol::new(&env, "invoice_amount"), String::from_str(&env, &invoice_config.invoice_amount.to_string()));
 
     AssetConfig {
         metadata,

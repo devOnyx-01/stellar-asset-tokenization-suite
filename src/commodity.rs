@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error};
+use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error, String};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
@@ -36,10 +36,10 @@ pub fn create_commodity_config(
     }
 
     let mut metadata = base_config.metadata;
-    metadata.set(Symbol::new(&env, "commodity_type"), commodity_config.commodity_type);
-    metadata.set(Symbol::new(&env, "vault_location"), commodity_config.vault_location);
-    metadata.set(Symbol::new(&env, "purity_grade"), commodity_config.purity_grade);
-    metadata.set(Symbol::new(&env, "redemption_window"), Symbol::new(&env, &commodity_config.physical_redemption_window.to_string()));
+    metadata.set(Symbol::new(&env, "commodity_type"), String::from_str(&env, &commodity_config.commodity_type.to_string()));
+    metadata.set(Symbol::new(&env, "vault_location"), String::from_str(&env, &commodity_config.vault_location.to_string()));
+    metadata.set(Symbol::new(&env, "purity_grade"), String::from_str(&env, &commodity_config.purity_grade.to_string()));
+    metadata.set(Symbol::new(&env, "redemption_window"), String::from_str(&env, &commodity_config.physical_redemption_window.to_string()));
 
     AssetConfig {
         metadata,
