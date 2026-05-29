@@ -16,6 +16,9 @@ pub mod security;
 pub mod art;
 pub mod carbon_credit;
 
+#[cfg(test)]
+mod tests;
+
 use asset_factory::AssetFactoryClient;
 use compliance_registry::ComplianceRegistryClient;
 use custody_validator::CustodyValidatorClient;
