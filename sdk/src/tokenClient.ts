@@ -6,8 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol
+  ScInt
 } from 'stellar-sdk';
 import { 
   AssetInfo, 
@@ -498,24 +497,27 @@ export class TokenClient {
     throw new Error('signTransaction not implemented');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }
 
-    // Convert different error types to RWASDKError
-    if (error.message?.includes('timeout')) {
-      return new RWASDKErrorClass(ErrorCode.TIMEOUT, error.message);
+    const message = (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string')
+      ? (error as Record<string, string>).message
+      : String(error);
+
+    if (message.includes('timeout')) {
+      return new RWASDKErrorClass(ErrorCode.TIMEOUT, message);
     }
 
-    if (error.message?.includes('insufficient')) {
-      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, error.message);
+    if (message.includes('insufficient')) {
+      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, message);
     }
 
-    if (error.message?.includes('unauthorized')) {
-      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, error.message);
+    if (message.includes('unauthorized')) {
+      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, message);
     }
 
-    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, error.message);
+    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, message);
   }
 }
