@@ -18,10 +18,9 @@ pub fn write_admin(env: &Env, auth: &Address, admin: &Address) {
 }
 
 pub fn require_admin(env: &Env, auth: &Address) {
-    let admin_key = Symbol::new(env, "admin");
-    let admin: Address = match env.storage().instance().get(&admin_key) {
-        Some(admin) => admin,
-        None => panic_with_error!(env, AdminError::NotInitialized),
-    };
-    assert_admin(auth, &admin);
+    let admin: Address = env.storage()
+        .instance()
+        .get(&Symbol::new(env, "admin"))
+        .unwrap_or_else(|| panic!("Not initialized"));
+    assert_admin(env, auth, &admin);
 }

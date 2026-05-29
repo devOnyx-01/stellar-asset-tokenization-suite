@@ -151,6 +151,15 @@ fn get_all_assets_returns_empty_map_initially() {
     assert_eq!(assets.len(), 0);
 }
 
+// ── list_assets ──────────────────────────────────────────────────────────────
+
+#[test]
+fn list_assets_returns_empty_vec_initially() {
+    let (_, _, client) = setup();
+    let assets = client.list_assets();
+    assert_eq!(assets.len(), 0);
+}
+
 // ── set_asset_pause_status ────────────────────────────────────────────────────
 
 #[test]

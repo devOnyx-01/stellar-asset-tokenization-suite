@@ -4,6 +4,7 @@ use soroban_sdk::{
 
 use crate::rwa_token::RWATokenClient;
 use crate::RwaDeploySpec;
+use crate::auth::assert_admin;
 
 const STORAGE_VERSION: u32 = 1;
 
@@ -132,9 +133,6 @@ impl AssetFactory {
         );
     }
 
-    /// Create a new RWA asset with deterministic address deployment
-    pub fn create_asset(env: Env, auth: Address, config: AssetConfig) -> Address {
-        crate::shared_admin::require_admin(&env, &auth);
     fn read_version(env: &Env) -> u32 {
         env.storage()
             .instance()
@@ -270,7 +268,6 @@ impl AssetFactory {
             panic_with_error!(&env, AssetFactoryError::InvalidParameters);
         }
 
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -341,6 +338,7 @@ impl AssetFactory {
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); })
     }
 
+    /// List all assets in the registry
     pub fn list_assets(env: Env) -> Vec<AssetInfo> {
         let registry: Map<Symbol, AssetInfo> = env
             .storage()
@@ -356,7 +354,6 @@ impl AssetFactory {
     }
 
     pub fn set_asset_pause_status(env: Env, auth: Address, symbol: Symbol, paused: bool) {
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -378,7 +375,8 @@ impl AssetFactory {
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); });
 
         asset_info.is_paused = paused;
-        env.storage().instance().set(&asset_key, &asset_info);
+        registry.set(symbol.clone(), asset_info);
+        env.storage().instance().set(&Symbol::new(&env, "registry"), &registry);
 
         env.events().publish(
             (Symbol::new(&env, "asset_pause_status_changed"), symbol, auth),
@@ -387,7 +385,6 @@ impl AssetFactory {
     }
 
     pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -410,7 +407,6 @@ impl AssetFactory {
 
     /// Register a new template for an asset class
     pub fn register_template(env: Env, auth: Address, template: AssetTemplate) {
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -450,7 +446,6 @@ impl AssetFactory {
 
     /// Upgrade an asset with governance approval
     pub fn upgrade_asset(env: Env, auth: Address, symbol: Symbol, new_wasm_hash: BytesN<32>) {
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -467,7 +462,7 @@ impl AssetFactory {
             .get(&Symbol::new(&env, "registry"))
             .unwrap_or(Map::new(&env));
         
-        let mut asset_info = registry.get(symbol)
+        let mut asset_info = registry.get(symbol.clone())
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); });
 
         // Check governance threshold (simplified - in real implementation would check token holder votes)
@@ -500,7 +495,7 @@ impl AssetFactory {
 
         // Update registry
         let mut registry = registry;
-        registry.set(symbol, asset_info);
+        registry.set(symbol.clone(), asset_info);
         env.storage().instance().set(&Symbol::new(&env, "registry"), &registry);
 
         env.events().publish(
@@ -511,7 +506,6 @@ impl AssetFactory {
 
     /// Emergency pause all assets
     pub fn emergency_pause_all(env: Env, auth: Address) {
-        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
@@ -530,14 +524,14 @@ impl AssetFactory {
 
         let mut updated_registry = Map::<Symbol, AssetInfo>::new(&env);
         
-        for (symbol, mut asset_info) in registry {
+        for (symbol, mut asset_info) in registry.iter() {
             asset_info.is_paused = true;
             updated_registry.set(symbol, asset_info);
         }
 
         env.storage().instance().set(&Symbol::new(&env, "registry"), &updated_registry);
 
-        let count: u32 = env.storage().instance().get(&Symbol::new(&env, "asset_count")).unwrap_or(0u32);
+        let count: u32 = registry.len();
         env.events().publish(
             (Symbol::new(&env, "emergency_pause_all"), auth),
             count,
