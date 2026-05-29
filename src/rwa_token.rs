@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, String,
 };
 
 use crate::compliance_registry::ComplianceRegistryClient;
@@ -36,7 +36,7 @@ pub struct TokenInfo {
     pub total_supply: i128,
     pub decimals: u32,
     pub asset_type: Symbol,
-    pub metadata: Map<Symbol, Symbol>,
+    pub metadata: Map<Symbol, String>,
     pub compliance_registry: Address,
     pub dividend_distributor: Address,
     pub created_at: u64,
@@ -81,7 +81,7 @@ impl RWAToken {
         total_supply: i128,
         decimals: u32,
         asset_type: Symbol,
-        metadata: Map<Symbol, Symbol>,
+        metadata: Map<Symbol, String>,
         compliance_registry: Address,
         dividend_distributor: Address,
     ) {

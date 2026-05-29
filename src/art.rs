@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, panic_with_error};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, panic_with_error, String};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
@@ -23,11 +23,11 @@ pub fn create_art_config(
     }
 
     let mut metadata = base_config.metadata;
-    metadata.set(Symbol::new(&env, "artist_name"), art_config.artist_name);
-    metadata.set(Symbol::new(&env, "provenance_hash"), Symbol::new(&env, &std::str::from_utf8(&art_config.provenance_hash.to_array()).unwrap_or("invalid")));
-    metadata.set(Symbol::new(&env, "insurance_status"), Symbol::new(&env, &art_config.insurance_status.to_string()));
-    metadata.set(Symbol::new(&env, "exhibition_voting"), Symbol::new(&env, &art_config.exhibition_voting.to_string()));
-    metadata.set(Symbol::new(&env, "appraisal_value"), Symbol::new(&env, &art_config.appraisal_value.to_string()));
+    metadata.set(Symbol::new(&env, "artist_name"), String::from_str(&env, &art_config.artist_name.to_string()));
+    metadata.set(Symbol::new(&env, "provenance_hash"), String::from_str(&env, &format!("{:?}", art_config.provenance_hash)));
+    metadata.set(Symbol::new(&env, "insurance_status"), String::from_str(&env, &art_config.insurance_status.to_string()));
+    metadata.set(Symbol::new(&env, "exhibition_voting"), String::from_str(&env, &art_config.exhibition_voting.to_string()));
+    metadata.set(Symbol::new(&env, "appraisal_value"), String::from_str(&env, &art_config.appraisal_value.to_string()));
 
     AssetConfig {
         metadata,

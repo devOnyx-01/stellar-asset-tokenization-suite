@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, Symbol, Vec, String};
 
 mod asset_factory;
 mod asset_class_handlers;
@@ -35,7 +35,7 @@ pub struct RwaDeploySpec {
     pub total_supply: i128,
     pub decimals: u32,
     pub asset_type: Symbol,
-    pub metadata: Map<Symbol, Symbol>,
+    pub metadata: Map<Symbol, String>,
     pub compliance_registry: Address,
     pub dividend_distributor: Address,
 }

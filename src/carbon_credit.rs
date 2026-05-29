@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Env, Map, Symbol, Vec, panic_with_error};
+use soroban_sdk::{contracttype, Env, Map, Symbol, Vec, panic_with_error, String};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
@@ -35,11 +35,11 @@ pub fn create_carbon_credit_config(
     }
 
     let mut metadata = base_config.metadata;
-    metadata.set(Symbol::new(&env, "project_id"), carbon_config.project_id);
-    metadata.set(Symbol::new(&env, "vintage_year"), Symbol::new(&env, &carbon_config.vintage_year.to_string()));
-    metadata.set(Symbol::new(&env, "retirement_functionality"), Symbol::new(&env, &carbon_config.retirement_functionality.to_string()));
-    metadata.set(Symbol::new(&env, "verification_standard"), carbon_config.verification_standard);
-    metadata.set(Symbol::new(&env, "carbon_offset_amount"), Symbol::new(&env, &carbon_config.carbon_offset_amount.to_string()));
+    metadata.set(Symbol::new(&env, "project_id"), String::from_str(&env, &carbon_config.project_id.to_string()));
+    metadata.set(Symbol::new(&env, "vintage_year"), String::from_str(&env, &carbon_config.vintage_year.to_string()));
+    metadata.set(Symbol::new(&env, "retirement_functionality"), String::from_str(&env, &carbon_config.retirement_functionality.to_string()));
+    metadata.set(Symbol::new(&env, "verification_standard"), String::from_str(&env, &carbon_config.verification_standard.to_string()));
+    metadata.set(Symbol::new(&env, "carbon_offset_amount"), String::from_str(&env, &carbon_config.carbon_offset_amount.to_string()));
 
     for (key, value) in carbon_config.project_metadata {
         metadata.set(key, value);

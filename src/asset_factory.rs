@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, BytesN,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, BytesN, String,
 };
 
 use crate::rwa_token::RWATokenClient;
@@ -67,7 +67,7 @@ pub struct AssetConfig {
     pub asset_class: AssetClass,
     pub compliance_rules: ComplianceRules,
     pub dividend_schedule: Option<DividendSchedule>,
-    pub metadata: Map<Symbol, Symbol>,
+    pub metadata: Map<Symbol, String>,
 }
 
 #[contracttype]
@@ -88,7 +88,7 @@ pub struct AssetInfo {
     pub total_supply: i128,
     pub decimals: u32,
     pub asset_class: AssetClass,
-    pub metadata: Map<Symbol, Symbol>,
+    pub metadata: Map<Symbol, String>,
     pub compliance_registry: Address,
     pub dividend_distributor: Address,
     pub token_address: Address,
@@ -207,12 +207,19 @@ impl AssetFactory {
             .get(&Symbol::new(&env, "templates"))
             .unwrap_or(Map::new(&env));
         
-        let template = templates.get(config.asset_class)
+        let template = templates.get(config.asset_class.clone())
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::TemplateNotFound); });
         
         if !template.is_active {
             panic_with_error!(&env, AssetFactoryError::TemplateNotActive);
         }
+
+        // Validate asset class symbol
+        let asset_class_str = format!("{:?}", config.asset_class);
+        if !is_valid_symbol(&asset_class_str) {
+            panic_with_error!(&env, AssetFactoryError::InvalidParameters);
+        }
+        let asset_type_sym = Symbol::new(&env, &asset_class_str);
 
         // Deploy token with deterministic address using salt
         let salt = env.crypto().sha256(&(
@@ -233,7 +240,7 @@ impl AssetFactory {
             &config.symbol,
             &config.total_supply,
             &config.decimals,
-            &Symbol::new(&env, &format!("{:?}", config.asset_class)),
+            &asset_type_sym,
             &config.metadata,
             &Address::from_contract_id(&[0u8; 32]), // Placeholder compliance registry
             &Address::from_contract_id(&[0u8; 32]), // Placeholder dividend distributor
@@ -557,4 +564,16 @@ impl AssetFactory {
             .unwrap_or(Map::new(&env));
         registry.len()
     }
+}
+
+pub fn is_valid_symbol(s: &str) -> bool {
+    if s.is_empty() || s.len() > 32 {
+        return false;
+    }
+    for c in s.chars() {
+        if !c.is_ascii_alphanumeric() && c != '_' {
+            return false;
+        }
+    }
+    true
 }
