@@ -16,10 +16,9 @@ import {
   ClaimInfo, 
   TransactionOptions, 
   RWASDKConfig, 
-  RWASDKError, 
-  ErrorCode 
+  RWASDKError
 } from './types';
-import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError } from './errors';
 
 /**
  * Client for interacting with the on-chain DividendDistributor contract.
@@ -100,7 +99,7 @@ export class DividendClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       // Extract distribution ID from result
@@ -155,7 +154,7 @@ export class DividendClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       // Extract claimed amount from result
@@ -203,7 +202,7 @@ export class DividendClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       // Extract claimed amounts from result
@@ -343,7 +342,7 @@ export class DividendClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -386,7 +385,7 @@ export class DividendClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -550,22 +549,27 @@ export class DividendClient {
       return error;
     }
 
-    const message = (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string')
-      ? (error as Record<string, string>).message
-      : String(error);
+    const message = error.message || String(error);
 
     if (message.includes('timeout')) {
-      return new RWASDKErrorClass(ErrorCode.TIMEOUT, message);
+      return new TimeoutError(message);
     }
 
     if (message.includes('insufficient')) {
-      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, message);
+      return new InsufficientBalanceError(message);
     }
 
     if (message.includes('unauthorized')) {
-      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, message);
+      return new UnauthorizedError(message);
     }
 
-    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, message);
+    // Try to parse Soroban contract error numbers (e.g. "ContractError(401)")
+    const match = message.match(/ContractError\((\d+)\)/);
+    if (match) {
+      const code = contractErrorToCode(parseInt(match[1]));
+      return new RWASDKErrorClass(code, message);
+    }
+
+    return new ContractError(message);
   }
 }

@@ -2,7 +2,7 @@ import { Server, TransactionBuilder, Networks, Operation, Asset, Keypair, Accoun
 import { Horizon } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import BigNumber from 'bignumber.js';
-import { RWASDKError } from './errors';
+import { RWASDKError, ContractError, VerificationFailedError, InsufficientBondError } from './errors';
 import { ErrorCode } from './types';
 
 export interface CustodyAttestation {
@@ -326,7 +326,7 @@ export class CustodyClient {
                 insurance_status: latestAttestation?.insurance_status || 'unknown'
             };
         } catch (error) {
-            throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to verify asset backing: ${error}`);
+            throw new ContractError(`Failed to verify asset backing: ${error}`);
         }
     }
 
@@ -409,7 +409,7 @@ export class CustodyClient {
     async getDispute(disputeId: number): Promise<DisputeRecord> {
         // Query the contract for dispute details
         // This is a placeholder implementation
-        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getDispute
+        throw new ContractError('Not implemented'); // getDispute
     }
 
     /**
@@ -420,7 +420,7 @@ export class CustodyClient {
      * @throws {RWASDKError} With code `CONTRACT_ERROR` — not yet implemented.
      */
     async getCustodianInfo(custodianAddress: string): Promise<CustodianRegistry> {
-        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getCustodianInfo
+        throw new ContractError('Not implemented'); // getCustodianInfo
     }
 
     /**
@@ -430,7 +430,7 @@ export class CustodyClient {
      * @throws {RWASDKError} With code `CONTRACT_ERROR` — not yet implemented.
      */
     async listActiveCustodians(): Promise<CustodianRegistry[]> {
-        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // listActiveCustodians
+        throw new ContractError('Not implemented'); // listActiveCustodians
     }
 
     /**
@@ -443,7 +443,7 @@ export class CustodyClient {
      * @throws {RWASDKError} With code `CONTRACT_ERROR` — not yet implemented.
      */
     async getVerificationConfig(verificationType: string): Promise<VerificationTypeConfig> {
-        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getVerificationConfig
+        throw new ContractError('Not implemented'); // getVerificationConfig
     }
 
     private async getLatestAttestation(assetId: string): Promise<CustodyAttestation | null> {

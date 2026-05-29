@@ -7,8 +7,7 @@ import { MarketClient } from './marketClient';
 import { ComplianceClient } from './complianceClient';
 import { CustodyClient } from './custody';
 import { CustodyMonitoring } from './custodyMonitoring';
-import { InvalidParametersError, RWASDKError } from './errors';
-import { ErrorCode } from './types';
+import { InvalidParametersError, RWASDKError, NetworkError, ContractError } from './errors';
 
 // Type exports
 export * from './types';
@@ -125,7 +124,7 @@ export class StellarRWASDK {
         protocolVersion: network.protocolVersion
       };
     } catch (error) {
-      throw new RWASDKError(ErrorCode.NETWORK_ERROR, `Failed to get network info: ${error.message}`);
+      throw new NetworkError(`Failed to get network info: ${error.message}`);
     }
   }
 
@@ -224,7 +223,7 @@ export class StellarRWASDK {
         marketHash
       };
     } catch (error) {
-      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Complete deployment failed: ${error.message}`);
+      throw new ContractError(`Complete deployment failed: ${error.message}`);
     }
   }
 
@@ -246,9 +245,9 @@ export class StellarRWASDK {
     try {
       // This would aggregate data from all contracts
       // For now, return a placeholder implementation
-      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'getUserPortfolio not implemented');
+      throw new ContractError('getUserPortfolio not implemented');
     } catch (error) {
-      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to get user portfolio: ${error.message}`);
+      throw new ContractError(`Failed to get user portfolio: ${error.message}`);
     }
   }
 
@@ -268,9 +267,9 @@ export class StellarRWASDK {
     try {
       // This would aggregate data from all contracts
       // For now, return a placeholder implementation
-      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'getPlatformStats not implemented');
+      throw new ContractError('getPlatformStats not implemented');
     } catch (error) {
-      throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to get platform stats: ${error.message}`);
+      throw new ContractError(`Failed to get platform stats: ${error.message}`);
     }
   }
 }

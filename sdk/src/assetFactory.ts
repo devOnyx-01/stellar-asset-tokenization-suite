@@ -12,7 +12,7 @@ import {
   scValToNative
 } from '@stellar/stellar-sdk';
 
-import { RWASDKError, InvalidParametersError } from './errors';
+import { RWASDKError, InvalidParametersError, TransactionError, NetworkError } from './errors';
 import { ErrorCode } from './types';
 
 export enum AssetClass {
@@ -537,20 +537,25 @@ export class AssetFactory {
     signer: Keypair
   ): Promise<any> {
     transaction.sign(signer);
-    
-    const result = await this.server.sendTransaction(transaction);
-    
+
+    let result: any;
+    try {
+      result = await this.server.sendTransaction(transaction);
+    } catch (error: any) {
+      throw new NetworkError(`Failed to send transaction: ${error?.message ?? error}`);
+    }
+
     if (result.status === 'ERROR') {
-      throw new RWASDKError(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.errorResult}`);
+      throw new TransactionError(`Transaction failed: ${result.errorResult}`);
     }
 
     // Wait for transaction confirmation
     const txResult = await this.server.getTransaction(result.hash!);
-    
+
     if (txResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return txResult;
     } else {
-      throw new RWASDKError(ErrorCode.TRANSACTION_FAILED, `Transaction not successful: ${txResult.status}`);
+      throw new TransactionError(`Transaction not successful: ${txResult.status}`);
     }
   }
 

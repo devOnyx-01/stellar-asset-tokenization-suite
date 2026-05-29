@@ -17,10 +17,9 @@ import {
   OrderOptions, 
   TransactionOptions, 
   RWASDKConfig, 
-  RWASDKError, 
-  ErrorCode 
+  RWASDKError
 } from './types';
-import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError, TransactionError } from './errors';
 
 /**
  * Client for interacting with the on-chain SecondaryMarket contract.
@@ -94,7 +93,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       // Extract order ID from result
@@ -152,7 +151,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       // Extract order ID from result
@@ -201,7 +200,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -245,7 +244,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -365,7 +364,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -408,7 +407,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -451,7 +450,7 @@ export class MarketClient {
       const result = await this.server.sendTransaction(signedTx);
 
       if (result.status === 'ERROR') {
-        throw new RWASDKErrorClass(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.error}`);
+        throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
       return result.hash;
@@ -518,7 +517,7 @@ export class MarketClient {
     try {
       // This would query trade history and aggregate it into OHLCV data
       // For now, return a placeholder implementation
-      throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getPriceHistory not implemented');
+      throw new ContractError('getPriceHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -613,45 +612,31 @@ export class MarketClient {
   }
 
   private convertMarketConfigToScVal(config: MarketConfig): xdr.ScVal {
-    // This would convert MarketConfig to ScVal
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertMarketConfigToScVal not implemented');
+    throw new ContractError('convertMarketConfigToScVal not implemented');
   }
 
   private convertScValToOrderBook(scVal: xdr.ScVal): OrderBook {
-    // This would parse the ScVal returned from the contract
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrderBook not implemented');
+    throw new ContractError('convertScValToOrderBook not implemented');
   }
 
   private convertScValToOrder(scVal: xdr.ScVal): Order {
-    // This would parse the ScVal returned from the contract
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrder not implemented');
+    throw new ContractError('convertScValToOrder not implemented');
   }
 
   private convertScValToOrderArray(scVal: xdr.ScVal): Order[] {
-    // This would parse the ScVal array returned from the contract
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrderArray not implemented');
+    throw new ContractError('convertScValToOrderArray not implemented');
   }
 
   private convertScValToTradeArray(scVal: xdr.ScVal): Trade[] {
-    // This would parse the ScVal array returned from the contract
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToTradeArray not implemented');
+    throw new ContractError('convertScValToTradeArray not implemented');
   }
 
   private extractOrderId(resultMetaXdr: string): number {
-    // This would extract the order ID from transaction result
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractOrderId not implemented');
+    throw new ContractError('extractOrderId not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
-    // This would sign the transaction with the signer's key
-    // For now, return a placeholder implementation
-    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
+    throw new ContractError('signTransaction not implemented');
   }
 
   private handleError(error: unknown): RWASDKErrorClass {
@@ -659,22 +644,27 @@ export class MarketClient {
       return error;
     }
 
-    const message = (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string')
-      ? (error as Record<string, string>).message
-      : String(error);
+    const message = error.message || String(error);
 
     if (message.includes('timeout')) {
-      return new RWASDKErrorClass(ErrorCode.TIMEOUT, message);
+      return new TimeoutError(message);
     }
 
     if (message.includes('insufficient')) {
-      return new RWASDKErrorClass(ErrorCode.INSUFFICIENT_BALANCE, message);
+      return new InsufficientBalanceError(message);
     }
 
     if (message.includes('unauthorized')) {
-      return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, message);
+      return new UnauthorizedError(message);
     }
 
-    return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, message);
+    // Try to parse Soroban contract error numbers (e.g. "ContractError(501)")
+    const match = message.match(/ContractError\((\d+)\)/);
+    if (match) {
+      const code = contractErrorToCode(parseInt(match[1]));
+      return new RWASDKErrorClass(code, message);
+    }
+
+    return new ContractError(message);
   }
 }
