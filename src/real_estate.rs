@@ -1,12 +1,19 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol};
+use soroban_sdk::{contracttype, Address, Env, Symbol, panic_with_error, contracterror};
 use crate::asset_factory::AssetConfig;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum RealEstateError {
+    InvalidLocationOracle = 1,
+    InvalidRentalYieldRate = 2,
+}
 
 #[contracttype]
 #[derive(Clone)]
 pub struct RealEstateConfig {
     pub property_address: Symbol,
     pub location_oracle: Address,
-    pub rental_yield_rate: i64, // in basis points
+    pub rental_yield_rate: i64,
     pub property_management_voting: bool,
     pub insurance_status: bool,
     pub appraisal_value: i128,
@@ -17,17 +24,14 @@ pub fn create_real_estate_config(
     base_config: AssetConfig,
     real_estate_config: RealEstateConfig,
 ) -> AssetConfig {
-    // Validate location oracle
     if real_estate_config.location_oracle == Address::from_contract_id(&[0u8; 32]) {
-        panic!("Invalid location oracle");
+        panic_with_error!(&env, RealEstateError::InvalidLocationOracle);
     }
 
-    // Validate rental yield rate (should be between 0 and 10000 basis points)
     if real_estate_config.rental_yield_rate < 0 || real_estate_config.rental_yield_rate > 10000 {
-        panic!("Invalid rental yield rate");
+        panic_with_error!(&env, RealEstateError::InvalidRentalYieldRate);
     }
 
-    // Add real estate specific metadata
     let mut metadata = base_config.metadata;
     metadata.set(Symbol::new(&env, "property_address"), real_estate_config.property_address);
     metadata.set(Symbol::new(&env, "location_oracle"), Symbol::new(&env, &real_estate_config.location_oracle.to_string()));

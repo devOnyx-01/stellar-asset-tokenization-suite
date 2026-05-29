@@ -8,6 +8,8 @@ import { ComplianceClient } from './complianceClient';
 import { CustodyClient } from './custody';
 import { CustodyMonitoring } from './custodyMonitoring';
 import { InvalidParametersError, RWASDKError, NetworkError, ContractError } from './errors';
+import { DEFAULT_DECIMALS, DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, STELLAR_NETWORKS } from './constants';
+import { createLogger, Logger } from './logger';
 
 // Type exports
 export * from './types';
@@ -39,6 +41,7 @@ export * from './errors';
 // Configuration utilities
 export class StellarRWASDK {
   private config: RWASDKConfig;
+  private logger: Logger;
   
   // Client instances
   public assetFactory: AssetFactory;
@@ -49,6 +52,8 @@ export class StellarRWASDK {
 
   constructor(config: RWASDKConfig) {
     this.config = config;
+    this.logger = createLogger('StellarRWASDK');
+    this.logger.info('Initializing SDK', { network: config.stellar.network, serverUrl: config.stellar.serverUrl });
     
     // Initialize all clients
     this.assetFactory = new AssetFactory(
@@ -64,6 +69,7 @@ export class StellarRWASDK {
       config.stellar.serverUrl,
       config.stellar.passphrase
     );
+    this.logger.info('SDK initialized successfully');
   }
 
   /**
@@ -84,6 +90,7 @@ export class StellarRWASDK {
    * Update configuration
    */
   updateConfig(newConfig: Partial<RWASDKConfig>): void {
+    this.logger.info('Updating SDK configuration', { newConfig: Object.keys(newConfig) });
     this.config = { ...this.config, ...newConfig };
     
     // Reinitialize clients with new config
@@ -100,6 +107,7 @@ export class StellarRWASDK {
       this.config.stellar.serverUrl,
       this.config.stellar.passphrase
     );
+    this.logger.info('SDK configuration updated');
   }
 
   /**
@@ -309,30 +317,7 @@ export function createStellarRWASDK(
     defaultTimeout?: number;
   }
 ): StellarRWASDK {
-  const networkConfigs = {
-    testnet: {
-      serverUrl: 'https://horizon-testnet.stellar.org',
-      horizonUrl: 'https://horizon-testnet.stellar.org',
-      passphrase: 'Test SDF Network ; September 2015'
-    },
-    mainnet: {
-      serverUrl: 'https://horizon.stellar.org',
-      horizonUrl: 'https://horizon.stellar.org',
-      passphrase: 'Public Global Stellar Network ; September 2015'
-    },
-    futurenet: {
-      serverUrl: 'https://horizon-futurenet.stellar.org',
-      horizonUrl: 'https://horizon-futurenet.stellar.org',
-      passphrase: 'Test SDF Future Network ; October 2022'
-    },
-    standalone: {
-      serverUrl: 'http://localhost:8000',
-      horizonUrl: 'http://localhost:8000',
-      passphrase: 'Standalone Network ; February 2017'
-    }
-  };
-
-  const config = networkConfigs[network];
+  const config = STELLAR_NETWORKS[network];
   
   const sdkConfig: RWASDKConfig = {
     stellar: {
@@ -342,8 +327,8 @@ export function createStellarRWASDK(
       passphrase: config.passphrase
     },
     contracts,
-    defaultFeeRate: options?.defaultFeeRate || 100,
-    defaultTimeout: options?.defaultTimeout || 30
+    defaultFeeRate: options?.defaultFeeRate || DEFAULT_FEE_RATE,
+    defaultTimeout: options?.defaultTimeout || DEFAULT_TIMEOUT_SECONDS
   };
 
   return new StellarRWASDK(sdkConfig);
@@ -369,7 +354,7 @@ function safeBigInt(value: string | number): bigint {
   }
 }
 
-export function formatAmount(amount: string | number, decimals: number = 18): string {
+export function formatAmount(amount: string | number, decimals: number = DEFAULT_DECIMALS): string {
   const num = safeBigInt(amount);
   const divisor = safeBigInt(10) ** safeBigInt(decimals);
   const whole = num / divisor;
@@ -385,7 +370,7 @@ export function formatAmount(amount: string | number, decimals: number = 18): st
   return `${whole}.${trimmedFractional}`;
 }
 
-export function parseAmount(amount: string, decimals: number = 18): string {
+export function parseAmount(amount: string, decimals: number = DEFAULT_DECIMALS): string {
   const [whole, fractional = ''] = amount.split('.');
   const wholeBigInt = safeBigInt(whole.replace(/[^0-9-]/g, '') || '0');
   const fractionalBigInt = fractional ? safeBigInt(fractional.padEnd(decimals, '0').slice(0, decimals)) : 0n;

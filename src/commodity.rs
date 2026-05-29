@@ -1,5 +1,11 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error, contracterror};
 use crate::asset_factory::AssetConfig;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum CommodityError {
+    InvalidPurityGrade = 1,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -25,7 +31,7 @@ pub fn create_commodity_config(
     ]);
     
     if !valid_grades.contains(&commodity_config.purity_grade) {
-        panic!("Invalid purity grade");
+        panic_with_error!(&env, CommodityError::InvalidPurityGrade);
     }
 
     let mut metadata = base_config.metadata;
