@@ -6,8 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol
+  ScInt
 } from 'stellar-sdk';
 import { 
   DividendDistribution, 
@@ -82,7 +81,7 @@ export class DividendClient {
       const call = this.contract.call(
         'create_distribution',
         new Address(options.tokenAddress),
-        new ScSymbol(options.currency),
+        xdr.ScVal.scvSymbol(options.currency),
         new ScInt(options.amount, xdr.ScValType.ScvI128),
         new ScInt(Math.floor(options.claimDeadline.getTime() / 1000)),
         metadataScMap
@@ -269,7 +268,7 @@ export class DividendClient {
         new Address(claimer)
       );
       
-      if (result.result === null) {
+      if (result.result == null) {
         return null;
       }
       
@@ -300,7 +299,10 @@ export class DividendClient {
         new Address(claimer)
       );
       
-      return result.result.toString();
+      const val = result.result;
+      if (typeof val === 'string') return val;
+      if (val && typeof val.toString === 'function') return val.toString();
+      return '0';
     } catch (error) {
       throw this.handleError(error);
     }
@@ -482,10 +484,13 @@ export class DividendClient {
   // Private helper methods
 
   private convertMetadataToScMap(metadata: Record<string, string>): xdr.ScMap {
+    if (!metadata || typeof metadata !== 'object') {
+      return new xdr.ScMap({ map: [] });
+    }
     const map = new xdr.ScMap({
       map: Object.entries(metadata).map(([key, value]) => ({
-        key: xdr.ScVal.scvSymbol(new ScSymbol(key)),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(value))
+        key: xdr.ScVal.scvSymbol(key),
+        val: xdr.ScVal.scvSymbol(value)
       }))
     });
     return map;
@@ -539,7 +544,7 @@ export class DividendClient {
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }

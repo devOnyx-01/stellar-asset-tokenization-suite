@@ -7,7 +7,7 @@ import {
   scValToNative, 
   nativeToScVal 
 } from 'stellar-sdk';
-import { RWASDKConfig, TransactionOptions, Order, Trade, OrderBook } from './types';
+import { RWASDKConfig, TransactionOptions, Order, Trade, OrderBook, Address } from './types';
 import { formatAmount, parseAmount } from './index';
 
 /**
@@ -57,10 +57,12 @@ export class SecondaryMarketClient {
     minFill: string = '0',
     options: TransactionOptions = {}
   ): Promise<string> {
+    const sideSymbol = xdr.ScVal.scvSymbol(side);
+
     const args = [
       new Address(maker).toScVal(),
       new Address(tokenAddress).toScVal(),
-      Symbol(side), // Symbol in Soroban
+      sideSymbol,
       nativeToScVal(parseAmount(price), { type: 'i128' }),
       nativeToScVal(parseAmount(amount), { type: 'i128' }),
       nativeToScVal(expiry, { type: 'u64' }),
@@ -126,12 +128,12 @@ export class SecondaryMarketClient {
     // an indexer is recommended.
     // Placeholder fetching logic:
     return {
-      token_address: tokenAddress,
-      bids: [],
-      asks: [],
-      last_price: '0',
-      volume_24h: '0',
-      last_updated: Date.now()
+      tokenAddress: tokenAddress as unknown as Address,
+      buyOrders: [],
+      sellOrders: [],
+      lastPrice: '0',
+      volume24h: '0',
+      lastUpdated: new Date()
     };
   }
 

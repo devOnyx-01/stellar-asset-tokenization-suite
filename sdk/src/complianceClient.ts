@@ -6,8 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol
+  ScInt
 } from 'stellar-sdk';
 import { 
   KYCStatus, 
@@ -191,7 +190,7 @@ export class ComplianceClient {
       const call = this.contract.call(
         'add_to_blacklist',
         new Address(address),
-        new ScSymbol(reason)
+        xdr.ScVal.scvSymbol(reason)
       );
 
       const transaction = new TransactionBuilder(account, {
@@ -363,7 +362,7 @@ export class ComplianceClient {
         new ScInt(amount, xdr.ScValType.ScvI128)
       );
       
-      return result.result as boolean;
+      return typeof result.result === 'boolean' ? result.result : false;
     } catch (error) {
       throw this.handleError(error);
     }
@@ -388,7 +387,7 @@ export class ComplianceClient {
         new ScInt(amount, xdr.ScValType.ScvI128)
       );
       
-      return result.result as boolean;
+      return typeof result.result === 'boolean' ? result.result : false;
     } catch (error) {
       throw this.handleError(error);
     }
@@ -616,6 +615,76 @@ export class ComplianceClient {
     }
   }
 
+  /**
+   * Query audit trail events from the contract
+   */
+  async getAuditTrail(
+    options: {
+      limit?: number;
+      cursor?: string;
+      eventTypes?: string[];
+      admin?: Address;
+      target?: Address;
+      fromTimestamp?: Date;
+      toTimestamp?: Date;
+    } = {}
+  ): Promise<{
+    entries: AuditLogEntry[];
+    hasMore: boolean;
+    nextCursor?: string;
+  }> {
+    try {
+      // Query Soroban contract events filtered by compliance event topics
+      // This is a placeholder implementation - in production, you'd query contract events
+      // via Horizon's Soroban event stream or contract-specific event queries
+      
+      const eventTypes = options.eventTypes || [
+        'registry_initialized', 'registry_migrated',
+        'kyc_updated', 'blacklisted', 'unblacklisted',
+        'whitelisted', 'unwhitelisted',
+        'compliance_check', 'outbound_compliance_check',
+        'transfer_limit_check', 'transfer_limits_set',
+        'compliance_rule_updated'
+      ];
+
+      // In a real implementation, parse Soroban contract events matching these types
+      return {
+        entries: [],
+        hasMore: false
+      };
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Get audit trail entries filtered by admin address
+   */
+  async getAuditTrailByAdmin(
+    admin: Address,
+    options: { limit?: number; cursor?: string } = {}
+  ): Promise<{
+    entries: AuditLogEntry[];
+    hasMore: boolean;
+    nextCursor?: string;
+  }> {
+    return this.getAuditTrail({ ...options, admin });
+  }
+
+  /**
+   * Get audit trail entries for a specific target address
+   */
+  async getAuditTrailByTarget(
+    target: Address,
+    options: { limit?: number; cursor?: string } = {}
+  ): Promise<{
+    entries: AuditLogEntry[];
+    hasMore: boolean;
+    nextCursor?: string;
+  }> {
+    return this.getAuditTrail({ ...options, target });
+  }
+
   // Private helper methods
 
   private convertKYCStatusToScVal(kycStatus: KYCStatus): xdr.ScVal {
@@ -654,7 +723,7 @@ export class ComplianceClient {
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }

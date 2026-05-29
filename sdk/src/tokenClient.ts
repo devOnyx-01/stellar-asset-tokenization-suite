@@ -6,10 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol,
-  scValToNative,
-  Keypair
+  ScInt
 } from 'stellar-sdk';
 import { 
   AssetInfo, 
@@ -675,12 +672,14 @@ export class TokenClient {
     throw new UnauthorizedError('signTransaction requires a configured secretKey in the SDK config');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }
 
-    const message = error.message || String(error);
+    const message = (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string')
+      ? (error as Record<string, string>).message
+      : String(error);
 
     if (message.includes('timeout')) {
       return new TimeoutError(message);

@@ -324,10 +324,25 @@ export interface MarketEvent {
 }
 
 export interface ComplianceEvent {
-  type: 'kyc_updated' | 'blacklisted' | 'unblacklisted' | 'whitelisted' | 'unwhitelisted';
-  user: Address;
+  type: 'kyc_updated' | 'blacklisted' | 'unblacklisted' | 'whitelisted' | 'unwhitelisted'
+    | 'registry_initialized' | 'registry_migrated' | 'compliance_check' | 'outbound_compliance_check'
+    | 'transfer_limit_check' | 'transfer_limits_set' | 'compliance_rule_updated';
+  user?: Address;
+  admin?: Address;
   reason?: string;
   kycStatus?: KYCStatus;
+  amount?: string;
+  result?: boolean;
+  timestamp: Date;
+  txHash: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  eventType: string;
+  admin: Address;
+  target?: Address;
+  details: Record<string, any>;
   timestamp: Date;
   txHash: string;
 }

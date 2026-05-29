@@ -182,9 +182,14 @@ export class CustodyMonitoring {
             const contractAlerts = await this.custodyClient['getCustodyAlerts']();
             
             for (const [assetId, alertType] of contractAlerts) {
-                const alert: CustodyAlert = {
+                const validTypes = ['attestation_expired', 'attestation_expiring_soon', 'invalid_attestation', 'custodian_reputation_low', 'insurance_lapsed'] as const;
+            const safeAlertType: CustodyAlert['alert_type'] = validTypes.includes(alertType as any)
+              ? (alertType as CustodyAlert['alert_type'])
+              : 'invalid_attestation';
+
+            const alert: CustodyAlert = {
                     asset_id: assetId,
-                    alert_type: alertType as any,
+                    alert_type: safeAlertType,
                     severity: this.determineAlertSeverity(alertType),
                     message: this.generateAlertMessage(alertType, assetId),
                     timestamp: Date.now(),

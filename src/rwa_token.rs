@@ -20,6 +20,8 @@ pub enum RWATokenError {
     AlreadyInitialized = 9,
     NotInitialized = 10,
     TokenInfoNotFound = 11,
+    Overflow = 12,
+    Underflow = 13,
 }
 
 #[contracttype]
@@ -119,6 +121,11 @@ impl RWAToken {
         );
 
         Self::mint(env.clone(), auth.clone(), auth.clone(), total_supply);
+
+        env.events().publish(
+            (Symbol::new(&env, "token_initialized"), auth),
+            (name, symbol, total_supply, decimals, asset_type),
+        );
     }
 
     fn read_version(env: &Env) -> u32 {
@@ -184,17 +191,23 @@ impl RWAToken {
             panic!("Token is paused");
         }
 
-        token_info.total_supply += amount;
+        token_info.total_supply = token_info.total_supply
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
 
         let mut balance = Self::get_balance(env.clone(), to.clone());
-        balance.amount += amount;
+        balance.amount = balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
         env.storage().instance().set(&to, &balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "mint"), to.clone()), amount);
+        env.events().publish(
+            (Symbol::new(&env, "mint"), to.clone()),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn burn(env: Env, from: Address, amount: i128) {
@@ -219,11 +232,13 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        if !Self::check_outbound_compliance(env.clone(), from.clone(), amount) {
+        if !Self::check_transfer_compliance(env.clone(), from.clone(), from.clone(), amount) {
             panic_with_error!(&env, RWATokenError::ComplianceCheckFailed);
         }
 
-        balance.amount -= amount;
+        balance.amount = balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
         env.storage().instance().set(&from, &balance);
 
         let mut token_info: TokenInfo = env
@@ -232,19 +247,26 @@ impl RWAToken {
             .get(&Symbol::new(&env, "token_info"))
             .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
-        token_info.total_supply -= amount;
+        token_info.total_supply = token_info.total_supply
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
 
-        env.events()
-            .publish((Symbol::new(&env, "burn"), from.clone()), amount);
+        env.events().publish(
+            (Symbol::new(&env, "burn"), from.clone()),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         if amount <= 0 {
             panic_with_error!(&env, RWATokenError::InvalidAmount);
         }
+
+        // Require explicit authorisation from the sender
+        from.require_auth();
 
         Self::check_version(&env);
 
@@ -265,18 +287,28 @@ impl RWAToken {
         let mut from_balance = Self::get_balance(env.clone(), from.clone());
         let mut to_balance = Self::get_balance(env.clone(), to.clone());
 
-        if from_balance.amount < amount {
+        // Only spendable (unlocked) tokens may be transferred
+        let spendable = from_balance.amount
+            .checked_sub(from_balance.locked_amount)
+            .unwrap_or(0);
+        if spendable < amount {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        from_balance.amount -= amount;
-        to_balance.amount += amount;
+        from_balance.amount = from_balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        to_balance.amount = to_balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
 
         env.storage().instance().set(&from, &from_balance);
         env.storage().instance().set(&to, &to_balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "transfer"), from, to), amount);
+        env.events().publish(
+            (Symbol::new(&env, "transfer"), from.clone()),
+            (to, amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn get_token_info(env: Env) -> TokenInfo {
@@ -312,9 +344,15 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        balance.amount -= amount;
-        balance.locked_amount += amount;
-        balance.voting_power += amount;
+        balance.amount = balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        balance.locked_amount = balance.locked_amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
+        balance.voting_power = balance.voting_power
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
 
         env.storage().instance().set(&owner, &balance);
 
@@ -326,7 +364,9 @@ impl RWAToken {
 
         let slot = LockSlot {
             amount,
-            until: env.ledger().timestamp() + lock_period,
+            until: env.ledger().timestamp()
+                .checked_add(lock_period)
+                .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow)),
         };
         locks.set(owner.clone(), slot);
         env.storage()
@@ -335,7 +375,7 @@ impl RWAToken {
 
         env.events().publish(
             (Symbol::new(&env, "tokens_locked"), owner),
-            (amount, lock_period),
+            (amount, lock_period, env.ledger().timestamp()),
         );
     }
 
@@ -356,14 +396,22 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        balance.locked_amount -= amount;
-        balance.amount += amount;
-        balance.voting_power -= amount;
+        balance.locked_amount = balance.locked_amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        balance.amount = balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
+        balance.voting_power = balance.voting_power
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
 
         env.storage().instance().set(&owner, &balance);
 
-        env.events()
-            .publish((Symbol::new(&env, "tokens_unlocked"), owner), amount);
+        env.events().publish(
+            (Symbol::new(&env, "tokens_unlocked"), owner),
+            (amount, env.ledger().timestamp()),
+        );
     }
 
     pub fn pause(env: Env, auth: Address) {
@@ -388,6 +436,11 @@ impl RWAToken {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
+
+        env.events().publish(
+            (Symbol::new(&env, "token_paused"), auth),
+            Symbol::new(&env, "paused"),
+        );
     }
 
     pub fn unpause(env: Env, auth: Address) {
@@ -412,6 +465,11 @@ impl RWAToken {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
+
+        env.events().publish(
+            (Symbol::new(&env, "token_unpaused"), auth),
+            Symbol::new(&env, "unpaused"),
+        );
     }
 
     pub fn freeze(env: Env, auth: Address) {
@@ -436,6 +494,11 @@ impl RWAToken {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
+
+        env.events().publish(
+            (Symbol::new(&env, "token_frozen"), auth),
+            Symbol::new(&env, "frozen"),
+        );
     }
 
     pub fn unfreeze(env: Env, auth: Address) {
@@ -460,6 +523,11 @@ impl RWAToken {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
+
+        env.events().publish(
+            (Symbol::new(&env, "token_unfrozen"), auth),
+            Symbol::new(&env, "unfrozen"),
+        );
     }
 
     fn check_transfer_compliance(env: Env, from: Address, to: Address, amount: i128) -> bool {

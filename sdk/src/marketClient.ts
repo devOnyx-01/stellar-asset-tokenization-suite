@@ -6,8 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol
+  ScInt
 } from 'stellar-sdk';
 import { 
   Order, 
@@ -575,16 +574,20 @@ export class MarketClient {
     try {
       const orderBook = await this.getOrderBook(tokenAddress);
       
+      const toBigInt = (val: string): bigint => {
+        try { return BigInt(val); } catch { return 0n; }
+      };
+
       const bids = orderBook.buyOrders.slice(0, depth).map(order => ({
         price: order.price,
         amount: order.remainingAmount,
-        total: (BigInt(order.price) * BigInt(order.remainingAmount)).toString()
+        total: (toBigInt(order.price) * toBigInt(order.remainingAmount)).toString()
       }));
 
       const asks = orderBook.sellOrders.slice(0, depth).map(order => ({
         price: order.price,
         amount: order.remainingAmount,
-        total: (BigInt(order.price) * BigInt(order.remainingAmount)).toString()
+        total: (toBigInt(order.price) * toBigInt(order.remainingAmount)).toString()
       }));
 
       return { bids, asks };
@@ -596,10 +599,13 @@ export class MarketClient {
   // Private helper methods
 
   private convertMetadataToScMap(metadata: Record<string, string>): xdr.ScMap {
+    if (!metadata || typeof metadata !== 'object') {
+      return new xdr.ScMap({ map: [] });
+    }
     const map = new xdr.ScMap({
       map: Object.entries(metadata).map(([key, value]) => ({
-        key: xdr.ScVal.scvSymbol(new ScSymbol(key)),
-        val: xdr.ScVal.scvSymbol(new ScSymbol(value))
+        key: xdr.ScVal.scvSymbol(key),
+        val: xdr.ScVal.scvSymbol(value)
       }))
     });
     return map;
@@ -633,7 +639,7 @@ export class MarketClient {
     throw new ContractError('signTransaction not implemented');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }

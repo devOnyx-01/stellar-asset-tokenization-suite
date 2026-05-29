@@ -311,7 +311,12 @@ export class CustodyClient {
                 Date.now() < latestAttestation.expires_at : 
                 false;
 
-            const relevantAlerts = alerts.filter(([asset]) => asset === tokenAddress)
+            const relevantAlerts = alerts
+                .filter((entry): entry is [string, string] => {
+                  if (!Array.isArray(entry) || entry.length < 2) return false;
+                  const [asset] = entry;
+                  return asset === tokenAddress;
+                })
                 .map(([, alert]) => alert);
 
             return {
@@ -492,22 +497,37 @@ export class CustodyClient {
 
     // Helper methods for encoding Stellar contract arguments
     private encodeAddress(address: string): Buffer[] {
-        return [Buffer.from(address)];
+        if (typeof address !== 'string' || address.length === 0) {
+            throw new Error('Invalid address: must be a non-empty string');
+        }
+        return [Buffer.from(address, 'utf8')];
     }
 
     private encodeString(str: string): Buffer[] {
-        return [Buffer.from(str)];
+        if (typeof str !== 'string') {
+            throw new Error('Invalid string: must be a string');
+        }
+        return [Buffer.from(str, 'utf8')];
     }
 
     private encodeStringArray(arr: string[]): Buffer[] {
-        return [Buffer.from(JSON.stringify(arr))];
+        if (!Array.isArray(arr)) {
+            throw new Error('Invalid array: must be an array of strings');
+        }
+        return [Buffer.from(JSON.stringify(arr), 'utf8')];
     }
 
     private encodeNumber(num: number): Buffer[] {
-        return [Buffer.from(num.toString())];
+        if (typeof num !== 'number' || !Number.isFinite(num)) {
+            throw new Error('Invalid number: must be a finite number');
+        }
+        return [Buffer.from(num.toString(), 'utf8')];
     }
 
     private encodeCustodyAttestation(attestation: CustodyAttestation): Buffer[] {
-        return [Buffer.from(JSON.stringify(attestation))];
+        if (!attestation || typeof attestation !== 'object') {
+            throw new Error('Invalid attestation: must be an object');
+        }
+        return [Buffer.from(JSON.stringify(attestation), 'utf8')];
     }
 }
