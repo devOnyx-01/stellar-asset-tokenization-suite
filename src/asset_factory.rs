@@ -148,9 +148,9 @@ impl AssetFactory {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {

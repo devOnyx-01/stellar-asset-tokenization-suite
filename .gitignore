@@ -8,5 +8,5 @@ dist/
 *.log
 .DS_Store
 
-# PR description files
-PR_*.md
+# Local PR descriptions
+PR_ISSUE_15.md
