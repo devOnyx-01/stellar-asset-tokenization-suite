@@ -22,6 +22,10 @@ pub enum RWATokenError {
     TokenInfoNotFound = 11,
     Overflow = 12,
     Underflow = 13,
+    StorageOutdated = 14,
+    TokenNotInitialized = 15,
+    AlreadyAtLatestVersion = 16,
+    TokenPaused = 17,
 }
 
 #[contracttype]
@@ -137,23 +141,23 @@ impl RWAToken {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, RWATokenError::StorageOutdated);
         }
     }
 
-        crate::shared_admin::require_admin(&env, &auth);
-    pub fn migrate(env: Env, auth: Address) {
-        let admin: Address = env
-            .storage()
+    fn read_token_info(env: &Env) -> TokenInfo {
+        env.storage()
             .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Token not initialized"));
+            .get(&Symbol::new(env, "token_info"))
+            .unwrap_or_else(|| panic_with_error!(env, RWATokenError::TokenNotInitialized))
+    }
 
-        assert_admin(&auth, &admin);
+    pub fn migrate(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, RWATokenError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;
@@ -188,7 +192,7 @@ impl RWAToken {
             .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
         if token_info.is_paused {
-            panic!("Token is paused");
+            panic_with_error!(&env, RWATokenError::TokenPaused);
         }
 
         token_info.total_supply = token_info.total_supply
@@ -219,10 +223,10 @@ impl RWAToken {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "token_info"))
-            .unwrap_or_else(|| panic!("Token info not found"));
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::TokenInfoNotFound));
 
         if token_info.is_paused {
-            panic!("Token is paused");
+            panic_with_error!(&env, RWATokenError::TokenPaused);
         }
 
         Self::check_version(&env);

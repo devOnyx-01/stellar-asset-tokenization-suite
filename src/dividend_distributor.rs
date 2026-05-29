@@ -26,6 +26,9 @@ pub enum DividendError {
     ZeroTotalSupply = 14,
     NoTokensToClaim = 15,
     NoDividendAvailable = 16,
+    StorageOutdated = 17,
+    DistributorNotInitialized = 18,
+    AlreadyAtLatestVersion = 19,
 }
 
 #[contracttype]
@@ -135,7 +138,7 @@ impl DividendDistributor {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, DividendError::StorageOutdated);
         }
     }
 
@@ -144,13 +147,13 @@ impl DividendDistributor {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Distributor not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, DividendError::DistributorNotInitialized); });
 
-        assert_admin(&auth, &admin);
+        crate::auth::assert_admin(&env, &auth, &admin);
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, DividendError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;

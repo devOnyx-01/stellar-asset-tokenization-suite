@@ -1,5 +1,4 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token::TokenClient, Address, Env, Symbol,
     contract, contracterror, contractimpl, contracttype, panic_with_error, token::TokenClient, Address, Env, Map,
     Symbol, Vec, log,
 };
@@ -7,6 +6,7 @@ use soroban_sdk::{
 use crate::rwa_token::RWATokenClient;
 use crate::dividend_distributor::DividendDistributorClient;
 use crate::compliance_registry::ComplianceRegistryClient;
+use crate::auth::assert_admin;
 
 const STORAGE_VERSION: u32 = 1;
 
@@ -25,6 +25,9 @@ pub enum MarketError {
     DividendHalt = 10,
     MinOrderSizeNotMet = 11,
     AlreadyInitialized = 12,
+    StorageOutdated = 13,
+    MarketNotInitialized = 14,
+    AlreadyAtLatestVersion = 15,
 }
 
 #[contracttype]
@@ -128,22 +131,24 @@ impl SecondaryMarket {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, MarketError::StorageOutdated);
         }
     }
 
-    pub fn migrate(env: Env, auth: Address) {
-        let admin: Address = env
-            .storage()
+    fn read_config(env: &Env) -> MarketConfig {
+        env.storage()
             .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("Market not initialized"));
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| panic_with_error!(env, MarketError::MarketNotInitialized))
+    }
 
-        assert_admin(&auth, &admin);
+    pub fn migrate(env: Env, auth: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, MarketError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;

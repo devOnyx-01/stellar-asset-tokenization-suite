@@ -18,6 +18,9 @@ pub enum ComplianceError {
     TransferLimitExceeded = 7,
     AlreadyInitialized = 8,
     NotInitialized = 9,
+    StorageOutdated = 10,
+    RegistryNotInitialized = 11,
+    AlreadyAtLatestVersion = 12,
 }
 
 #[contracttype]
@@ -120,7 +123,7 @@ impl ComplianceRegistry {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, ComplianceError::StorageOutdated);
         }
     }
 
@@ -129,13 +132,13 @@ impl ComplianceRegistry {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Registry not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, ComplianceError::RegistryNotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, ComplianceError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;

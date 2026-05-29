@@ -39,6 +39,11 @@ pub enum CustodyError {
     AttestationNotFound = 23,
     OracleNotFound = 24,
     ConfigNotFound = 25,
+    StorageOutdated = 26,
+    ValidatorNotInitialized = 27,
+    AlreadyAtLatestVersion = 28,
+    InvalidAttestation = 29,
+    CustodianNotFound = 30,
 }
 
 #[contracttype]
@@ -390,7 +395,7 @@ impl CustodyValidator {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, CustodyError::StorageOutdated);
         }
     }
 
@@ -399,13 +404,13 @@ impl CustodyValidator {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Validator not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, CustodyError::ValidatorNotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, CustodyError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;
@@ -720,9 +725,8 @@ impl CustodyValidator {
     pub fn submit_attestation(env: Env, attestation: CustodyAttestation) -> u64 {
         Self::check_version(&env);
 
-        if !Self::verify_attestation(env.clone(), attestation.clone()) {
         if !Self::verify_attestation(&env, &attestation) {
-            panic!("Invalid attestation");
+            panic_with_error!(&env, CustodyError::InvalidAttestation);
         }
 
         let attestation_count: u64 = env
@@ -987,7 +991,7 @@ impl CustodyValidator {
 
     pub fn get_attestation(env: Env, attestation_id: u64) -> CustodyAttestation {
         Self::read_attestation(&env, &attestation_id)
-            .unwrap_or_else(|| panic!("Attestation not found"))
+            .unwrap_or_else(|| panic_with_error!(&env, CustodyError::AttestationNotFound))
     }
 
     pub fn get_latest_attestation(env: Env, asset_id: Address) -> Option<CustodyAttestation> {
@@ -1033,7 +1037,7 @@ impl CustodyValidator {
 
     pub fn get_custodian_info(env: Env, custodian_address: Address) -> CustodianRegistry {
         Self::read_custodian(&env, &custodian_address)
-            .unwrap_or_else(|| panic!("Custodian not found"))
+            .unwrap_or_else(|| panic_with_error!(&env, CustodyError::CustodianNotFound))
     }
 
     pub fn list_active_custodians(env: Env) -> Vec<CustodianRegistry> {

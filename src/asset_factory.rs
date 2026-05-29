@@ -23,6 +23,8 @@ pub enum AssetFactoryError {
     TemplateNotActive = 10,
     NotInitialized = 11,
     Overflow = 12,
+    StorageOutdated = 13,
+    AlreadyAtLatestVersion = 14,
 }
 
 #[contracttype]
@@ -142,7 +144,7 @@ impl AssetFactory {
 
     fn check_version(env: &Env) {
         if Self::read_version(env) < STORAGE_VERSION {
-            panic!("Contract storage is outdated. Call migrate().");
+            panic_with_error!(env, AssetFactoryError::StorageOutdated);
         }
     }
 
@@ -157,7 +159,7 @@ impl AssetFactory {
 
         let ver = Self::read_version(&env);
         if ver >= STORAGE_VERSION {
-            panic!("Already at latest version");
+            panic_with_error!(&env, AssetFactoryError::AlreadyAtLatestVersion);
         }
 
         let mut current = ver;

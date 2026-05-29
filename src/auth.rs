@@ -4,6 +4,8 @@ use soroban_sdk::{Address, Env, panic_with_error, contracterror};
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum AuthError {
     Unauthorized = 1,
+    NotInitialized = 2,
+    AlreadyInitialized = 3,
 }
 
 #[inline(always)]

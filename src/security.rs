@@ -1,5 +1,6 @@
-use soroban_sdk::{contracttype, Env, Symbol, Vec, panic_with_error, contracterror};
+use soroban_sdk::{contracttype, Env, Symbol, Vec, panic_with_error};
 use crate::asset_factory::AssetConfig;
+use crate::asset_class_handlers::AssetClassError;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -31,7 +32,7 @@ pub fn create_security_config(
     ]);
     
     if !valid_frameworks.contains(&security_config.regulation_framework) {
-        panic_with_error!(&env, SecurityError::InvalidRegulationFramework);
+        panic_with_error!(&env, AssetClassError::InvalidRegulationFramework);
     }
 
     let mut compliance_rules = base_config.compliance_rules;
