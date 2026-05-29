@@ -20,6 +20,8 @@ pub enum RWATokenError {
     AlreadyInitialized = 9,
     NotInitialized = 10,
     TokenInfoNotFound = 11,
+    Overflow = 12,
+    Underflow = 13,
 }
 
 #[contracttype]
@@ -184,13 +186,17 @@ impl RWAToken {
             panic!("Token is paused");
         }
 
-        token_info.total_supply += amount;
+        token_info.total_supply = token_info.total_supply
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
 
         let mut balance = Self::get_balance(env.clone(), to.clone());
-        balance.amount += amount;
+        balance.amount = balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
         env.storage().instance().set(&to, &balance);
 
         env.events().publish(
@@ -225,7 +231,9 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::ComplianceCheckFailed);
         }
 
-        balance.amount -= amount;
+        balance.amount = balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
         env.storage().instance().set(&from, &balance);
 
         let mut token_info: TokenInfo = env
@@ -234,7 +242,9 @@ impl RWAToken {
             .get(&Symbol::new(&env, "token_info"))
             .unwrap_or_else(|| { panic_with_error!(&env, RWATokenError::TokenInfoNotFound); });
 
-        token_info.total_supply -= amount;
+        token_info.total_supply = token_info.total_supply
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "token_info"), &token_info);
@@ -273,8 +283,12 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        from_balance.amount -= amount;
-        to_balance.amount += amount;
+        from_balance.amount = from_balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        to_balance.amount = to_balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
 
         env.storage().instance().set(&from, &from_balance);
         env.storage().instance().set(&to, &to_balance);
@@ -318,9 +332,15 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        balance.amount -= amount;
-        balance.locked_amount += amount;
-        balance.voting_power += amount;
+        balance.amount = balance.amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        balance.locked_amount = balance.locked_amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
+        balance.voting_power = balance.voting_power
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
 
         env.storage().instance().set(&owner, &balance);
 
@@ -332,7 +352,9 @@ impl RWAToken {
 
         let slot = LockSlot {
             amount,
-            until: env.ledger().timestamp() + lock_period,
+            until: env.ledger().timestamp()
+                .checked_add(lock_period)
+                .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow)),
         };
         locks.set(owner.clone(), slot);
         env.storage()
@@ -362,9 +384,15 @@ impl RWAToken {
             panic_with_error!(&env, RWATokenError::InsufficientBalance);
         }
 
-        balance.locked_amount -= amount;
-        balance.amount += amount;
-        balance.voting_power -= amount;
+        balance.locked_amount = balance.locked_amount
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
+        balance.amount = balance.amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Overflow));
+        balance.voting_power = balance.voting_power
+            .checked_sub(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, RWATokenError::Underflow));
 
         env.storage().instance().set(&owner, &balance);
 

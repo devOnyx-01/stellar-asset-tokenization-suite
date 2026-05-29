@@ -21,6 +21,7 @@ pub enum AssetFactoryError {
     AlreadyInitialized = 9,
     TemplateNotActive = 10,
     NotInitialized = 11,
+    Overflow = 12,
 }
 
 #[contracttype]
@@ -273,7 +274,9 @@ impl AssetFactory {
             .instance()
             .get(&Symbol::new(&env, "asset_count"))
             .unwrap_or(0u32);
-        count += 1;
+        count = count
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, AssetFactoryError::Overflow));
         env.storage().instance().set(&Symbol::new(&env, "asset_count"), &count);
 
         token_address
@@ -340,7 +343,9 @@ impl AssetFactory {
             .instance()
             .get(&Symbol::new(&env, "asset_count"))
             .unwrap_or(0u32);
-        count += 1;
+        count = count
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, AssetFactoryError::Overflow));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "asset_count"), &count);
@@ -487,7 +492,9 @@ impl AssetFactory {
 
         // Update asset info
         asset_info.token_address = new_token_address;
-        asset_info.template_version += 1;
+        asset_info.template_version = asset_info.template_version
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, AssetFactoryError::Overflow));
 
         // Update registry
         let mut registry = registry;
