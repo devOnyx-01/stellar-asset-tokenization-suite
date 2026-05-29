@@ -19,63 +19,31 @@ import {
   RWASDKError
 } from './types';
 import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError } from './errors';
+import { DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_PAGINATION_LIMIT } from './constants';
+import { createLogger, Logger } from './logger';
 
-/**
- * Client for interacting with the on-chain DividendDistributor contract.
- *
- * Provides methods for creating distributions, claiming dividends, querying
- * distribution state, and managing distributor configuration.
- *
- * @example
- * ```ts
- * const dividends = new DividendClient(sdkConfig);
- * const { distributionId } = await dividends.createDistribution(admin, options);
- * await dividends.claimDividend(holder, distributionId);
- * ```
- */
 export class DividendClient {
   private server: Server;
   private contract: Contract;
   private config: RWASDKConfig;
+  private logger: Logger;
 
-  /**
-   * Create a new DividendClient.
-   *
-   * @param config - SDK configuration. `config.contracts.dividendDistributor` must
-   *   be set to the deployed DividendDistributor contract address.
-   */
   constructor(config: RWASDKConfig) {
     this.config = config;
     this.server = new Server(config.stellar.serverUrl);
     this.contract = new Contract(config.contracts.dividendDistributor);
+    this.logger = createLogger('DividendClient');
   }
 
-  /**
-   * Create a new dividend distribution for a token.
-   *
-   * Deposits `options.amount` of `options.currency` into the distributor
-   * contract and records a new distribution that token holders can claim
-   * before `options.claimDeadline`.
-   *
-   * @param admin - Admin address that authorises and funds the distribution.
-   * @param options - Distribution parameters: token address, currency, total
-   *   amount, claim deadline, and optional metadata.
-   * @param txOptions - Optional transaction overrides (fee, timeout, memo).
-   * @returns An object with the Stellar `transactionHash` and the on-chain
-   *   `distributionId` assigned to the new distribution.
-   * @throws {RWASDKError} With code `INSUFFICIENT_FUNDS` if the admin lacks sufficient balance.
-   * @throws {RWASDKError} With code `UNSUPPORTED_CURRENCY` if the currency is not configured.
-   * @throws {RWASDKError} With code `TRANSACTION_FAILED` if the transaction is rejected on-chain.
-   */
   async createDistribution(
     admin: Address,
     options: DividendOptions,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; distributionId: number }> {
+    this.logger.info('Creating dividend distribution', { token: options.tokenAddress.toString(), amount: options.amount });
     try {
       const account = await this.server.getAccount(admin.toString());
       
-      // Convert metadata to ScMap
       const metadataScMap = this.convertMetadataToScMap(options.metadata || {});
       
       const call = this.contract.call(
@@ -88,11 +56,11 @@ export class DividendClient {
       );
 
       const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
+        fee: txOptions.fee || this.config.defaultFeeRate || DEFAULT_FEE_RATE,
         networkPassphrase: this.config.stellar.passphrase
       })
         .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
+        .setTimeout(txOptions.timeout || DEFAULT_TIMEOUT_SECONDS)
         .build();
 
       const signedTx = await this.signTransaction(transaction, admin);
@@ -102,9 +70,9 @@ export class DividendClient {
         throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
-      // Extract distribution ID from result
       const distributionId = this.extractDistributionId(result.resultMetaXdr);
 
+      this.logger.info('Dividend distribution created', { distributionId, hash: result.hash });
       return {
         transactionHash: result.hash,
         distributionId
@@ -114,25 +82,12 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Claim the dividend owed to `claimer` from a specific distribution.
-   *
-   * The claimable amount is proportional to the claimer's token balance at
-   * the time the distribution was created.
-   *
-   * @param claimer - Address claiming the dividend.
-   * @param distributionId - On-chain ID of the distribution to claim from.
-   * @param txOptions - Optional transaction overrides (fee, timeout, memo).
-   * @returns An object with the Stellar `transactionHash` and the `amountClaimed`.
-   * @throws {RWASDKError} With code `ALREADY_CLAIMED` if the claimer has already claimed.
-   * @throws {RWASDKError} With code `DISTRIBUTION_NOT_ACTIVE` if the distribution is inactive.
-   * @throws {RWASDKError} With code `NO_TOKENS_TO_CLAIM` if the claimer held no tokens.
-   */
   async claimDividend(
     claimer: Address,
     distributionId: number,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; amountClaimed: string }> {
+    this.logger.info('Claiming dividend', { claimer: claimer.toString(), distributionId });
     try {
       const account = await this.server.getAccount(claimer.toString());
       
@@ -143,11 +98,11 @@ export class DividendClient {
       );
 
       const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
+        fee: txOptions.fee || this.config.defaultFeeRate || DEFAULT_FEE_RATE,
         networkPassphrase: this.config.stellar.passphrase
       })
         .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
+        .setTimeout(txOptions.timeout || DEFAULT_TIMEOUT_SECONDS)
         .build();
 
       const signedTx = await this.signTransaction(transaction, claimer);
@@ -157,9 +112,9 @@ export class DividendClient {
         throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
-      // Extract claimed amount from result
       const amountClaimed = this.extractClaimedAmount(result.resultMetaXdr);
 
+      this.logger.info('Dividend claimed', { claimer: claimer.toString(), distributionId, amountClaimed, hash: result.hash });
       return {
         transactionHash: result.hash,
         amountClaimed
@@ -169,33 +124,22 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Claim all available dividends across every active distribution for `claimer`.
-   *
-   * Iterates all active distributions and claims any unclaimed amounts in a
-   * single transaction.
-   *
-   * @param claimer - Address claiming dividends.
-   * @param txOptions - Optional transaction overrides (fee, timeout, memo).
-   * @returns An object with the Stellar `transactionHash` and an array of
-   *   `claimedAmounts` (one entry per distribution claimed).
-   * @throws {RWASDKError} With code `NO_DIVIDEND_AVAILABLE` if there is nothing to claim.
-   */
   async claimAllDividends(
     claimer: Address,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; claimedAmounts: string[] }> {
+    this.logger.info('Claiming all dividends', { claimer: claimer.toString() });
     try {
       const account = await this.server.getAccount(claimer.toString());
       
       const call = this.contract.call('claim_all_dividends', new Address(claimer));
 
       const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
+        fee: txOptions.fee || this.config.defaultFeeRate || DEFAULT_FEE_RATE,
         networkPassphrase: this.config.stellar.passphrase
       })
         .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
+        .setTimeout(txOptions.timeout || DEFAULT_TIMEOUT_SECONDS)
         .build();
 
       const signedTx = await this.signTransaction(transaction, claimer);
@@ -205,9 +149,9 @@ export class DividendClient {
         throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
-      // Extract claimed amounts from result
       const claimedAmounts = this.extractClaimedAmounts(result.resultMetaXdr);
 
+      this.logger.info('All dividends claimed', { claimer: claimer.toString(), count: claimedAmounts.length, hash: result.hash });
       return {
         transactionHash: result.hash,
         claimedAmounts
@@ -217,13 +161,6 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Fetch details of a specific distribution by its on-chain ID.
-   *
-   * @param distributionId - On-chain ID of the distribution to query.
-   * @returns A `DividendDistribution` object with full distribution details.
-   * @throws {RWASDKError} With code `DISTRIBUTION_NOT_FOUND` if the ID does not exist.
-   */
   async getDistribution(distributionId: number): Promise<DividendDistribution> {
     try {
       const result = await this.contract.call('get_distribution', new ScInt(distributionId));
@@ -234,13 +171,6 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Retrieve all active distributions for a specific token.
-   *
-   * @param tokenAddress - On-chain address of the RWA token to query.
-   * @returns An array of active `DividendDistribution` objects.
-   * @throws {RWASDKError} If the contract call fails.
-   */
   async getActiveDistributions(tokenAddress: Address): Promise<DividendDistribution[]> {
     try {
       const result = await this.contract.call('get_active_distributions', new Address(tokenAddress));
@@ -251,15 +181,6 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Retrieve the claim record for a specific claimer and distribution.
-   *
-   * @param distributionId - On-chain ID of the distribution.
-   * @param claimer - Address of the claimer to look up.
-   * @returns A `ClaimInfo` object if the claimer has already claimed, or `null`
-   *   if no claim has been made yet.
-   * @throws {RWASDKError} If the contract call fails.
-   */
   async getClaimInfo(distributionId: number, claimer: Address): Promise<ClaimInfo | null> {
     try {
       const result = await this.contract.call(
@@ -279,15 +200,6 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Calculate the dividend amount available for a claimer to claim.
-   *
-   * @param distributionId - On-chain ID of the distribution.
-   * @param claimer - Address of the potential claimer.
-   * @returns The claimable amount as a raw integer string (no decimals).
-   * @throws {RWASDKError} With code `DISTRIBUTION_NOT_FOUND` if the ID does not exist.
-   * @throws {RWASDKError} With code `ALREADY_CLAIMED` if the claimer has already claimed.
-   */
   async calculateAvailableDividend(
     distributionId: number,
     claimer: Address
@@ -308,21 +220,12 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Update the distributor configuration (admin only).
-   *
-   * @param admin - Admin address that authorises the update.
-   * @param config - New `DividendConfig` to apply (supported currencies, auto-distribute
-   *   flag, minimum distribution amount, fee rate, etc.).
-   * @param txOptions - Optional transaction overrides (fee, timeout, memo).
-   * @returns The Stellar transaction hash.
-   * @throws {RWASDKError} With code `UNAUTHORIZED` if `admin` is not the distributor admin.
-   */
   async updateConfig(
     admin: Address,
     config: DividendConfig,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    this.logger.info('Updating dividend config');
     try {
       const account = await this.server.getAccount(admin.toString());
       
@@ -331,11 +234,11 @@ export class DividendClient {
       const call = this.contract.call('update_config', configScVal);
 
       const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
+        fee: txOptions.fee || this.config.defaultFeeRate || DEFAULT_FEE_RATE,
         networkPassphrase: this.config.stellar.passphrase
       })
         .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
+        .setTimeout(txOptions.timeout || DEFAULT_TIMEOUT_SECONDS)
         .build();
 
       const signedTx = await this.signTransaction(transaction, admin);
@@ -345,40 +248,30 @@ export class DividendClient {
         throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
+      this.logger.info('Dividend config updated', { hash: result.hash });
       return result.hash;
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
-  /**
-   * Deactivate a distribution, preventing further claims (admin only).
-   *
-   * Any unclaimed amounts remain in the contract until manually withdrawn.
-   *
-   * @param admin - Admin address that authorises the deactivation.
-   * @param distributionId - On-chain ID of the distribution to deactivate.
-   * @param txOptions - Optional transaction overrides (fee, timeout, memo).
-   * @returns The Stellar transaction hash.
-   * @throws {RWASDKError} With code `DISTRIBUTION_NOT_FOUND` if the ID does not exist.
-   * @throws {RWASDKError} With code `UNAUTHORIZED` if `admin` is not the distributor admin.
-   */
   async deactivateDistribution(
     admin: Address,
     distributionId: number,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    this.logger.info('Deactivating distribution', { distributionId });
     try {
       const account = await this.server.getAccount(admin.toString());
       
       const call = this.contract.call('deactivate_distribution', new ScInt(distributionId));
 
       const transaction = new TransactionBuilder(account, {
-        fee: txOptions.fee || this.config.defaultFeeRate || 100,
+        fee: txOptions.fee || this.config.defaultFeeRate || DEFAULT_FEE_RATE,
         networkPassphrase: this.config.stellar.passphrase
       })
         .addOperation(call)
-        .setTimeout(txOptions.timeout || 30)
+        .setTimeout(txOptions.timeout || DEFAULT_TIMEOUT_SECONDS)
         .build();
 
       const signedTx = await this.signTransaction(transaction, admin);
@@ -388,20 +281,13 @@ export class DividendClient {
         throw new TransactionError(`Transaction failed: ${result.error}`);
       }
 
+      this.logger.info('Distribution deactivated', { distributionId, hash: result.hash });
       return result.hash;
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
-  /**
-   * Retrieve aggregate dividend statistics, optionally scoped to a token.
-   *
-   * @param tokenAddress - Optional token address to scope the stats. If omitted,
-   *   returns platform-wide totals.
-   * @returns An object with `totalDistributions`, `activeDistributions`,
-   *   `totalDistributed`, `totalClaimed`, and `pendingClaims`.
-   */
   async getDividendStats(tokenAddress?: Address): Promise<{
     totalDistributions: number;
     activeDistributions: number;
@@ -410,8 +296,6 @@ export class DividendClient {
     pendingClaims: string;
   }> {
     try {
-      // For now, return placeholder implementation
-      // In a real implementation, you'd query events or storage for detailed stats
       return {
         totalDistributions: 0,
         activeDistributions: 0,
@@ -424,18 +308,9 @@ export class DividendClient {
     }
   }
 
-  /**
-   * Retrieve paginated dividend claim history for a user.
-   *
-   * @param user - Address of the user to query.
-   * @param limit - Maximum number of claim records to return (default `50`).
-   * @param cursor - Paging token from a previous response for cursor-based pagination.
-   * @returns An object with a `claims` array, `hasMore` flag, and optional `nextCursor`.
-   * @throws {RWASDKError} With code `CONTRACT_ERROR` — not yet implemented.
-   */
   async getUserDividendHistory(
     user: Address,
-    limit: number = 50,
+    limit: number = DEFAULT_PAGINATION_LIMIT,
     cursor?: string
   ): Promise<{
     claims: ClaimInfo[];
@@ -443,21 +318,12 @@ export class DividendClient {
     nextCursor?: string;
   }> {
     try {
-      // This would query dividend claim events from the contract
-      // For now, return a placeholder implementation
       throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getUserDividendHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
-  /**
-   * Estimate the fee for claiming a dividend.
-   *
-   * @param distributionId - On-chain ID of the distribution.
-   * @param claimer - Address of the claimer.
-   * @returns An object with `baseFee`, `dividendFee`, `totalFee`, and `feeCurrency`.
-   */
   async estimateClaimFee(
     distributionId: number,
     claimer: Address
@@ -468,8 +334,6 @@ export class DividendClient {
     feeCurrency: Currency;
   }> {
     try {
-      // This would calculate fees based on the dividend configuration
-      // For now, return a placeholder implementation
       return {
         baseFee: '100',
         dividendFee: '0',
@@ -480,8 +344,6 @@ export class DividendClient {
       throw this.handleError(error);
     }
   }
-
-  // Private helper methods
 
   private convertMetadataToScMap(metadata: Record<string, string>): xdr.ScMap {
     if (!metadata || typeof metadata !== 'object') {
@@ -497,50 +359,34 @@ export class DividendClient {
   }
 
   private convertDividendConfigToScVal(config: DividendConfig): xdr.ScVal {
-    // This would convert DividendConfig to ScVal
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertDividendConfigToScVal not implemented');
   }
 
   private convertScValToDistribution(scVal: xdr.ScVal): DividendDistribution {
-    // This would parse the ScVal returned from the contract
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToDistribution not implemented');
   }
 
   private convertScValToDistributionArray(scVal: xdr.ScVal): DividendDistribution[] {
-    // This would parse the ScVal array returned from the contract
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToDistributionArray not implemented');
   }
 
   private convertScValToClaimInfo(scVal: xdr.ScVal): ClaimInfo {
-    // This would parse the ScVal returned from the contract
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToClaimInfo not implemented');
   }
 
   private extractDistributionId(resultMetaXdr: string): number {
-    // This would extract the distribution ID from transaction result
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractDistributionId not implemented');
   }
 
   private extractClaimedAmount(resultMetaXdr: string): string {
-    // This would extract the claimed amount from transaction result
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractClaimedAmount not implemented');
   }
 
   private extractClaimedAmounts(resultMetaXdr: string): string[] {
-    // This would extract the claimed amounts from transaction result
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractClaimedAmounts not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
-    // This would sign the transaction with the signer's key
-    // For now, return a placeholder implementation
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
@@ -563,7 +409,6 @@ export class DividendClient {
       return new UnauthorizedError(message);
     }
 
-    // Try to parse Soroban contract error numbers (e.g. "ContractError(401)")
     const match = message.match(/ContractError\((\d+)\)/);
     if (match) {
       const code = contractErrorToCode(parseInt(match[1]));

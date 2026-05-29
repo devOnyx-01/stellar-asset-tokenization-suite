@@ -2,6 +2,13 @@ use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum InvoiceError {
+    InvalidDueDate = 1,
+    InvalidCreditRating = 2,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct InvoiceConfig {

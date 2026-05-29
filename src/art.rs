@@ -2,6 +2,12 @@ use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, panic_with_error};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum ArtError {
+    InvalidProvenance = 1,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct ArtConfig {

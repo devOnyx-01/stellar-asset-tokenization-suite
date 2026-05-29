@@ -2,6 +2,13 @@ use soroban_sdk::{contracttype, Env, Map, Symbol, Vec, panic_with_error};
 use crate::asset_factory::AssetConfig;
 use crate::asset_class_handlers::AssetClassError;
 
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum CarbonCreditError {
+    InvalidVintage = 1,
+    InvalidVerificationStandard = 2,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct CarbonCreditConfig {
@@ -18,7 +25,7 @@ pub fn create_carbon_credit_config(
     base_config: AssetConfig,
     carbon_config: CarbonCreditConfig,
 ) -> AssetConfig {
-    let current_year = (env.ledger().timestamp() / 31536000) + 1970; // Approximate current year
+    let current_year = (env.ledger().timestamp() / 31536000) + 1970;
     if carbon_config.vintage_year < 1990 || carbon_config.vintage_year > current_year {
         panic_with_error!(&env, AssetClassError::InvalidVintage);
     }

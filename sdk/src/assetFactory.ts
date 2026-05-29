@@ -14,6 +14,8 @@ import {
 
 import { RWASDKError, InvalidParametersError, TransactionError, NetworkError } from './errors';
 import { ErrorCode } from './types';
+import { DEFAULT_DECIMALS, DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, HOLDING_PERIOD_RULE_144, HOLDING_PERIOD_DEFAULT, HOLDING_PERIOD_INVOICE, HOLDING_PERIOD_ART, HOLDING_PERIOD_SECURITY, TRANSFER_LIMIT_REAL_ESTATE, TRANSFER_LIMIT_COMMODITY, TRANSFER_LIMIT_INVOICE, TRANSFER_LIMIT_SECURITY, TRANSFER_LIMIT_ART, TRANSFER_LIMIT_CARBON_CREDIT, RENTAL_YIELD_MAX_BASIS_POINTS, VALID_PURITY_GRADES, VALID_CREDIT_RATINGS, VALID_REGULATION_FRAMEWORKS, DAY_IN_SECONDS } from './constants';
+import { createLogger, Logger } from './logger';
 
 export enum AssetClass {
   RealEstate = 0,
@@ -129,6 +131,7 @@ export class AssetFactory {
   private server: Server;
   private contract: Contract;
   private networkPassphrase: string;
+  private logger: Logger;
 
   /**
    * Create a new AssetFactory client.
@@ -146,6 +149,8 @@ export class AssetFactory {
     this.server = new Server(serverUrl);
     this.contract = new Contract(contractId);
     this.networkPassphrase = networkPassphrase;
+    this.logger = createLogger('AssetFactory');
+    this.logger.info('AssetFactory initialized', { contractId });
   }
 
   /**
@@ -186,9 +191,11 @@ export class AssetFactory {
       metadata
     };
 
+    this.logger.info('Deploying Real Estate token', { name: config.name, propertyAddress: propertyDetails.property_address });
     const tx = await this.buildCreateAssetTransaction(signer, config);
     const result = await this.submitTransaction(tx, signer);
     
+    this.logger.info('Real Estate token deployed', { address: result.returnValue?.address || '', txHash: result.hash });
     return {
       address: result.returnValue?.address || '',
       transactionId: result.hash
@@ -217,9 +224,8 @@ export class AssetFactory {
     const account = await this.server.getAccount(signer.publicKey());
     
     // Validate purity grade
-    const validGrades = ['999', '995', '990', '750'];
-    if (!validGrades.includes(commodityConfig.purity_grade)) {
-      throw new InvalidParametersError('Invalid purity grade. Must be one of: ' + validGrades.join(', '));
+    if (!VALID_PURITY_GRADES.includes(commodityConfig.purity_grade as any)) {
+      throw new InvalidParametersError('Invalid purity grade. Must be one of: ' + VALID_PURITY_GRADES.join(', '));
     }
 
     // Create commodity specific metadata
@@ -238,9 +244,11 @@ export class AssetFactory {
       metadata
     };
 
+    this.logger.info('Deploying Commodity token', { name: baseConfig.name, purityGrade: commodityConfig.purity_grade });
     const tx = await this.buildCreateAssetTransaction(signer, config);
     const result = await this.submitTransaction(tx, signer);
     
+    this.logger.info('Commodity token deployed', { address: result.returnValue?.address || '', txHash: result.hash });
     return {
       address: result.returnValue?.address || '',
       transactionId: result.hash
@@ -276,9 +284,8 @@ export class AssetFactory {
     }
 
     // Validate credit rating
-    const validRatings = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC'];
-    if (!validRatings.includes(invoiceData.credit_rating)) {
-      throw new InvalidParametersError('Invalid credit rating. Must be one of: ' + validRatings.join(', '));
+    if (!VALID_CREDIT_RATINGS.includes(invoiceData.credit_rating as any)) {
+      throw new InvalidParametersError('Invalid credit rating. Must be one of: ' + VALID_CREDIT_RATINGS.join(', '));
     }
 
     // Create invoice specific metadata
@@ -299,9 +306,11 @@ export class AssetFactory {
       metadata
     };
 
+    this.logger.info('Deploying Invoice token', { invoiceNumber: invoiceData.invoice_number, amount: invoiceData.invoice_amount.toString() });
     const tx = await this.buildCreateAssetTransaction(signer, config);
     const result = await this.submitTransaction(tx, signer);
     
+    this.logger.info('Invoice token deployed', { address: result.returnValue?.address || '', txHash: result.hash });
     return {
       address: result.returnValue?.address || '',
       transactionId: result.hash
@@ -332,16 +341,15 @@ export class AssetFactory {
     const account = await this.server.getAccount(signer.publicKey());
     
     // Validate regulation framework
-    const validFrameworks = ['REG_D', 'REG_S', 'RULE_144', 'REG_A+'];
-    if (!validFrameworks.includes(regulationFramework)) {
-      throw new InvalidParametersError('Invalid regulation framework. Must be one of: ' + validFrameworks.join(', '));
+    if (!VALID_REGULATION_FRAMEWORKS.includes(regulationFramework as any)) {
+      throw new InvalidParametersError('Invalid regulation framework. Must be one of: ' + VALID_REGULATION_FRAMEWORKS.join(', '));
     }
 
     // Update compliance rules for securities
     const complianceRules: ComplianceRules = {
       ...baseConfig.compliance_rules,
       accredited_investor_only: true,
-      holding_period_days: regulationFramework === 'RULE_144' ? 365 : 90
+      holding_period_days: regulationFramework === 'RULE_144' ? HOLDING_PERIOD_RULE_144 : HOLDING_PERIOD_DEFAULT
     };
 
     // Create security specific metadata
@@ -359,9 +367,11 @@ export class AssetFactory {
       metadata
     };
 
+    this.logger.info('Deploying Security token', { equityType, regulationFramework });
     const tx = await this.buildCreateAssetTransaction(signer, config);
     const result = await this.submitTransaction(tx, signer);
     
+    this.logger.info('Security token deployed', { address: result.returnValue?.address || '', txHash: result.hash });
     return {
       address: result.returnValue?.address || '',
       transactionId: result.hash
@@ -380,7 +390,7 @@ export class AssetFactory {
    */
   getAssetClassTemplate(assetClass: AssetClass): Omit<AssetConfig, 'name' | 'symbol' | 'total_supply'> {
     return {
-      decimals: 18,
+      decimals: DEFAULT_DECIMALS,
       asset_class: assetClass,
       compliance_rules: this.getDefaultComplianceRules(assetClass),
       dividend_schedule: this.getDefaultDividendSchedule(assetClass),
@@ -474,17 +484,18 @@ export class AssetFactory {
    * @throws {RWASDKError} If the transaction fails or the signer is not the admin.
    */
   async emergencyPauseAll(signer: Keypair): Promise<string> {
+    this.logger.warn('Emergency pause all triggered', { signer: signer.publicKey() });
     const account = await this.server.getAccount(signer.publicKey());
     
     const tx = new TransactionBuilder(account, {
-      fee: '100',
+      fee: DEFAULT_FEE_RATE.toString(),
       networkPassphrase: this.networkPassphrase
     })
       .addOperation(this.contract.call(
         'emergency_pause_all',
         ...this.buildAuthArgs(signer)
       ))
-      .setTimeout(30)
+      .setTimeout(DEFAULT_TIMEOUT_SECONDS)
       .build();
 
     const result = await this.submitTransaction(tx, signer);
@@ -514,7 +525,7 @@ export class AssetFactory {
     const configScVal = nativeToScVal(config, { type: assetType });
 
     return new TransactionBuilder(account, {
-      fee: '100',
+      fee: DEFAULT_FEE_RATE.toString(),
       networkPassphrase: this.networkPassphrase
     })
       .addOperation(this.contract.call(
@@ -522,7 +533,7 @@ export class AssetFactory {
         ...this.buildAuthArgs(signer),
         configScVal
       ))
-      .setTimeout(30)
+      .setTimeout(DEFAULT_TIMEOUT_SECONDS)
       .build();
   }
 
@@ -566,8 +577,8 @@ export class AssetFactory {
           kyc_required: true,
           accredited_investor_only: false,
           geographic_restrictions: [],
-          holding_period_days: 90,
-          transfer_limits: BigInt(1000000)
+          holding_period_days: HOLDING_PERIOD_DEFAULT,
+          transfer_limits: TRANSFER_LIMIT_REAL_ESTATE
         };
       case AssetClass.Commodity:
         return {
@@ -575,31 +586,31 @@ export class AssetFactory {
           accredited_investor_only: false,
           geographic_restrictions: [],
           holding_period_days: 0,
-          transfer_limits: BigInt(5000000)
+          transfer_limits: TRANSFER_LIMIT_COMMODITY
         };
       case AssetClass.Invoice:
         return {
           kyc_required: true,
           accredited_investor_only: true,
           geographic_restrictions: [],
-          holding_period_days: 30,
-          transfer_limits: BigInt(2500000)
+          holding_period_days: HOLDING_PERIOD_INVOICE,
+          transfer_limits: TRANSFER_LIMIT_INVOICE
         };
       case AssetClass.Security:
         return {
           kyc_required: true,
           accredited_investor_only: true,
           geographic_restrictions: ['US', 'EU', 'UK'],
-          holding_period_days: 365,
-          transfer_limits: BigInt(100000)
+          holding_period_days: HOLDING_PERIOD_SECURITY,
+          transfer_limits: TRANSFER_LIMIT_SECURITY
         };
       case AssetClass.Art:
         return {
           kyc_required: true,
           accredited_investor_only: false,
           geographic_restrictions: [],
-          holding_period_days: 180,
-          transfer_limits: BigInt(500000)
+          holding_period_days: HOLDING_PERIOD_ART,
+          transfer_limits: TRANSFER_LIMIT_ART
         };
       case AssetClass.CarbonCredit:
         return {
@@ -607,7 +618,7 @@ export class AssetFactory {
           accredited_investor_only: false,
           geographic_restrictions: [],
           holding_period_days: 0,
-          transfer_limits: BigInt(10000000)
+          transfer_limits: TRANSFER_LIMIT_CARBON_CREDIT
         };
     }
   }
@@ -618,22 +629,22 @@ export class AssetFactory {
     switch (assetClass) {
       case AssetClass.RealEstate:
         return {
-          frequency_days: 90,
-          next_distribution_date: now + (90 * 86400),
+          frequency_days: HOLDING_PERIOD_DEFAULT,
+          next_distribution_date: now + (HOLDING_PERIOD_DEFAULT * DAY_IN_SECONDS),
           total_distributed: BigInt(0),
           is_active: true
         };
       case AssetClass.Invoice:
         return {
-          frequency_days: 30,
-          next_distribution_date: now + (30 * 86400),
+          frequency_days: HOLDING_PERIOD_INVOICE,
+          next_distribution_date: now + (HOLDING_PERIOD_INVOICE * DAY_IN_SECONDS),
           total_distributed: BigInt(0),
           is_active: true
         };
       case AssetClass.Security:
         return {
-          frequency_days: 90,
-          next_distribution_date: now + (90 * 86400),
+          frequency_days: HOLDING_PERIOD_SECURITY,
+          next_distribution_date: now + (HOLDING_PERIOD_SECURITY * DAY_IN_SECONDS),
           total_distributed: BigInt(0),
           is_active: true
         };
