@@ -12,6 +12,9 @@ import {
   scValToNative
 } from '@stellar/stellar-sdk';
 
+import { RWASDKError, InvalidParametersError } from './errors';
+import { ErrorCode } from './types';
+
 export enum AssetClass {
   RealEstate = 0,
   Commodity = 1,
@@ -171,7 +174,7 @@ export class AssetFactory {
     // Validate purity grade
     const validGrades = ['999', '995', '990', '750'];
     if (!validGrades.includes(commodityConfig.purity_grade)) {
-      throw new Error('Invalid purity grade. Must be one of: ' + validGrades.join(', '));
+      throw new InvalidParametersError('Invalid purity grade. Must be one of: ' + validGrades.join(', '));
     }
 
     // Create commodity specific metadata
@@ -212,13 +215,13 @@ export class AssetFactory {
     // Validate due date is in future
     const currentTime = Math.floor(Date.now() / 1000);
     if (invoiceData.due_date <= currentTime) {
-      throw new Error('Due date must be in future');
+      throw new InvalidParametersError('Due date must be in future');
     }
 
     // Validate credit rating
     const validRatings = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC'];
     if (!validRatings.includes(invoiceData.credit_rating)) {
-      throw new Error('Invalid credit rating. Must be one of: ' + validRatings.join(', '));
+      throw new InvalidParametersError('Invalid credit rating. Must be one of: ' + validRatings.join(', '));
     }
 
     // Create invoice specific metadata
@@ -262,7 +265,7 @@ export class AssetFactory {
     // Validate regulation framework
     const validFrameworks = ['REG_D', 'REG_S', 'RULE_144', 'REG_A+'];
     if (!validFrameworks.includes(regulationFramework)) {
-      throw new Error('Invalid regulation framework. Must be one of: ' + validFrameworks.join(', '));
+      throw new InvalidParametersError('Invalid regulation framework. Must be one of: ' + validFrameworks.join(', '));
     }
 
     // Update compliance rules for securities
@@ -439,7 +442,7 @@ export class AssetFactory {
     const result = await this.server.sendTransaction(transaction);
     
     if (result.status === 'ERROR') {
-      throw new Error(`Transaction failed: ${result.errorResult}`);
+      throw new RWASDKError(ErrorCode.TRANSACTION_FAILED, `Transaction failed: ${result.errorResult}`);
     }
 
     // Wait for transaction confirmation
@@ -448,7 +451,7 @@ export class AssetFactory {
     if (txResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return txResult;
     } else {
-      throw new Error(`Transaction not successful: ${txResult.status}`);
+      throw new RWASDKError(ErrorCode.TRANSACTION_FAILED, `Transaction not successful: ${txResult.status}`);
     }
   }
 

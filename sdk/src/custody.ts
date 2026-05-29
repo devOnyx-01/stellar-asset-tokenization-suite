@@ -2,6 +2,8 @@ import { Server, TransactionBuilder, Networks, Operation, Asset, Keypair, Accoun
 import { Horizon } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import BigNumber from 'bignumber.js';
+import { RWASDKError } from './errors';
+import { ErrorCode } from './types';
 
 export interface CustodyAttestation {
     asset_id: string;
@@ -261,7 +263,7 @@ export class CustodyClient {
                 insurance_status: latestAttestation?.insurance_status || 'unknown'
             };
         } catch (error) {
-            throw new Error(`Failed to verify asset backing: ${error}`);
+            throw new RWASDKError(ErrorCode.CONTRACT_ERROR, `Failed to verify asset backing: ${error}`);
         }
     }
 
@@ -312,25 +314,19 @@ export class CustodyClient {
     async getDispute(disputeId: number): Promise<DisputeRecord> {
         // Query the contract for dispute details
         // This is a placeholder implementation
-        throw new Error('Not implemented');
+        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getDispute
     }
 
     async getCustodianInfo(custodianAddress: string): Promise<CustodianRegistry> {
-        // Query the contract for custodian details
-        // This is a placeholder implementation
-        throw new Error('Not implemented');
+        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getCustodianInfo
     }
 
     async listActiveCustodians(): Promise<CustodianRegistry[]> {
-        // Query the contract for all active custodians
-        // This is a placeholder implementation
-        throw new Error('Not implemented');
+        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // listActiveCustodians
     }
 
     async getVerificationConfig(verificationType: string): Promise<VerificationTypeConfig> {
-        // Query the contract for verification type configuration
-        // This is a placeholder implementation
-        throw new Error('Not implemented');
+        throw new RWASDKError(ErrorCode.CONTRACT_ERROR, 'Not implemented'); // getVerificationConfig
     }
 
     private async getLatestAttestation(assetId: string): Promise<CustodyAttestation | null> {

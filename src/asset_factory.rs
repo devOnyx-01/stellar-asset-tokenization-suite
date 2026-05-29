@@ -1,8 +1,7 @@
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec, BytesN,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map, Symbol, Vec, BytesN,
 };
 
-use crate::auth::assert_admin;
 use crate::rwa_token::RWATokenClient;
 use crate::RwaDeploySpec;
 
@@ -19,6 +18,9 @@ pub enum AssetFactoryError {
     UpgradeNotApproved = 6,
     TemplateNotFound = 7,
     GovernanceThresholdNotMet = 8,
+    AlreadyInitialized = 9,
+    TemplateNotActive = 10,
+    NotInitialized = 11,
 }
 
 #[contracttype]
@@ -98,9 +100,11 @@ pub struct AssetFactory;
 #[contractimpl]
 impl AssetFactory {
     pub fn initialize(env: Env, auth: Address, admin: Address) {
+        crate::shared_admin::write_admin(&env, &auth, &admin);
+        
         auth.require_auth();
         if env.storage().instance().has(&Symbol::new(&env, "admin")) {
-            panic!("Factory already initialized");
+            panic_with_error!(&env, AssetFactoryError::AlreadyInitialized);
         }
         env.storage()
             .instance()
@@ -125,6 +129,9 @@ impl AssetFactory {
             .set(&Symbol::new(&env, "governance_threshold"), &6600u32); // 66% in basis points
     }
 
+    /// Create a new RWA asset with deterministic address deployment
+    pub fn create_asset(env: Env, auth: Address, config: AssetConfig) -> Address {
+        crate::shared_admin::require_admin(&env, &auth);
     fn read_version(env: &Env) -> u32 {
         env.storage()
             .instance()
@@ -168,15 +175,15 @@ impl AssetFactory {
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
         // Validate parameters
         if config.total_supply <= 0 || config.decimals > 18 {
-            panic!("Invalid token parameters");
+            panic_with_error!(&env, AssetFactoryError::InvalidParameters);
         }
 
         // Check if asset already exists
@@ -187,7 +194,7 @@ impl AssetFactory {
             .unwrap_or(Map::new(&env));
         
         if registry.has(&config.symbol) {
-            panic!("Asset already exists");
+            panic_with_error!(&env, AssetFactoryError::AssetAlreadyExists);
         }
 
         // Get template for asset class
@@ -198,10 +205,10 @@ impl AssetFactory {
             .unwrap_or(Map::new(&env));
         
         let template = templates.get(config.asset_class)
-            .unwrap_or_else(|| panic!("Template not found for asset class"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::TemplateNotFound); });
         
         if !template.is_active {
-            panic!("Template is not active");
+            panic_with_error!(&env, AssetFactoryError::TemplateNotActive);
         }
 
         // Deploy token with deterministic address using salt
@@ -275,16 +282,17 @@ impl AssetFactory {
     /// Link and initialize a `token_contract` that was already deployed on-chain.
     pub fn deploy_rwa_token(env: Env, auth: Address, spec: RwaDeploySpec) -> Address {
         if spec.total_supply <= 0 || spec.decimals > 18 {
-            panic!("Invalid token parameters");
+            panic_with_error!(&env, AssetFactoryError::InvalidParameters);
         }
 
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
@@ -345,7 +353,7 @@ impl AssetFactory {
         env.storage()
             .instance()
             .get(&asset_key)
-            .unwrap_or_else(|| panic!("Asset not found"))
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); })
     }
 
     pub fn list_assets(env: Env) -> Vec<AssetInfo> {
@@ -359,13 +367,14 @@ impl AssetFactory {
     }
 
     pub fn set_asset_pause_status(env: Env, auth: Address, symbol: Symbol, paused: bool) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
@@ -374,20 +383,21 @@ impl AssetFactory {
             .storage()
             .instance()
             .get(&asset_key)
-            .unwrap_or_else(|| panic!("Asset not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); });
 
         asset_info.is_paused = paused;
         env.storage().instance().set(&asset_key, &asset_info);
     }
 
     pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
@@ -398,13 +408,14 @@ impl AssetFactory {
 
     /// Register a new template for an asset class
     pub fn register_template(env: Env, auth: Address, template: AssetTemplate) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
@@ -427,18 +438,19 @@ impl AssetFactory {
             .unwrap_or(Map::new(&env));
         
         templates.get(asset_class)
-            .unwrap_or_else(|| panic!("Template not found for asset class"))
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::TemplateNotFound); })
     }
 
     /// Upgrade an asset with governance approval
     pub fn upgrade_asset(env: Env, auth: Address, symbol: Symbol, new_wasm_hash: BytesN<32>) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
@@ -449,7 +461,7 @@ impl AssetFactory {
             .unwrap_or(Map::new(&env));
         
         let mut asset_info = registry.get(symbol)
-            .unwrap_or_else(|| panic!("Asset not found"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); });
 
         // Check governance threshold (simplified - in real implementation would check token holder votes)
         let threshold: u32 = env
@@ -485,13 +497,14 @@ impl AssetFactory {
 
     /// Emergency pause all assets
     pub fn emergency_pause_all(env: Env, auth: Address) {
+        crate::shared_admin::require_admin(&env, &auth);
         let admin: Address = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "admin"))
-            .unwrap_or_else(|| panic!("Factory not initialized"));
+            .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::NotInitialized); });
 
-        assert_admin(&auth, &admin);
+        assert_admin(&env, &auth, &admin);
 
         Self::check_version(&env);
 
