@@ -1,5 +1,12 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Env, Symbol, Vec, panic_with_error, contracterror};
 use crate::asset_factory::AssetConfig;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum InvoiceError {
+    InvalidDueDate = 1,
+    InvalidCreditRating = 2,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -19,7 +26,7 @@ pub fn create_invoice_config(
 ) -> AssetConfig {
     let current_time = env.ledger().timestamp();
     if invoice_config.due_date <= current_time {
-        panic!("Due date must be in the future");
+        panic_with_error!(&env, InvoiceError::InvalidDueDate);
     }
 
     let valid_ratings = Vec::from_array(&env, [
@@ -33,7 +40,7 @@ pub fn create_invoice_config(
     ]);
     
     if !valid_ratings.contains(&invoice_config.credit_rating) {
-        panic!("Invalid credit rating");
+        panic_with_error!(&env, InvoiceError::InvalidCreditRating);
     }
 
     let mut metadata = base_config.metadata;

@@ -1,5 +1,11 @@
-use soroban_sdk::{contracttype, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, Env, Symbol, Vec, panic_with_error, contracterror};
 use crate::asset_factory::AssetConfig;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum SecurityError {
+    InvalidRegulationFramework = 1,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -25,7 +31,7 @@ pub fn create_security_config(
     ]);
     
     if !valid_frameworks.contains(&security_config.regulation_framework) {
-        panic!("Invalid regulation framework");
+        panic_with_error!(&env, SecurityError::InvalidRegulationFramework);
     }
 
     let mut compliance_rules = base_config.compliance_rules;

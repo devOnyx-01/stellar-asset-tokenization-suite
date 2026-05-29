@@ -1,5 +1,11 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, panic_with_error, contracterror};
 use crate::asset_factory::AssetConfig;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum ArtError {
+    InvalidProvenance = 1,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -18,7 +24,7 @@ pub fn create_art_config(
     art_config: ArtConfig,
 ) -> AssetConfig {
     if art_config.provenance_hash == BytesN::from_array(&env, &[0u8; 32]) {
-        panic!("Invalid provenance hash");
+        panic_with_error!(&env, ArtError::InvalidProvenance);
     }
 
     let mut metadata = base_config.metadata;
