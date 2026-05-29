@@ -210,7 +210,7 @@ impl ComplianceRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "kyc_updated"), user),
-            (kyc_status.is_verified, kyc_status.verification_level),
+            (kyc_status.is_verified, kyc_status.verification_level, env.ledger().timestamp()),
         );
     }
 
@@ -250,7 +250,7 @@ impl ComplianceRegistry {
             .set(&Symbol::new(&env, "blacklist"), &blacklist);
 
         env.events()
-            .publish((Symbol::new(&env, "blacklisted"), address), reason);
+            .publish((Symbol::new(&env, "blacklisted"), address), (reason, env.ledger().timestamp()));
     }
 
     pub fn remove_from_blacklist(env: Env, auth: Address, address: Address) {
@@ -287,7 +287,7 @@ impl ComplianceRegistry {
                 .set(&Symbol::new(&env, "blacklist"), &new_blacklist);
             env.events().publish(
                 (Symbol::new(&env, "unblacklisted"), address),
-                Symbol::new(&env, "removed"),
+                (Symbol::new(&env, "removed"), env.ledger().timestamp()),
             );
         }
     }
@@ -317,7 +317,7 @@ impl ComplianceRegistry {
 
         env.events().publish(
             (Symbol::new(&env, "whitelisted"), address),
-            Symbol::new(&env, "added"),
+            (Symbol::new(&env, "added"), env.ledger().timestamp()),
         );
     }
 
@@ -355,7 +355,7 @@ impl ComplianceRegistry {
                 .set(&Symbol::new(&env, "whitelist"), &new_whitelist);
             env.events().publish(
                 (Symbol::new(&env, "unwhitelisted"), address),
-                Symbol::new(&env, "removed"),
+                (Symbol::new(&env, "removed"), env.ledger().timestamp()),
             );
         }
     }
@@ -367,6 +367,7 @@ impl ComplianceRegistry {
             .get(&Symbol::new(&env, "kyc_required"))
             .unwrap_or(true);
 
+        // 1. Blacklist check — always enforced, no exceptions
         let blacklist: Vec<Address> = env
             .storage()
             .instance()
@@ -379,6 +380,7 @@ impl ComplianceRegistry {
             }
         }
 
+        // 2. KYC / whitelist checks
         if kyc_required {
             let whitelist: Vec<Address> = env
                 .storage()
@@ -389,6 +391,10 @@ impl ComplianceRegistry {
             let from_whitelisted = whitelist.iter().any(|a| a.clone() == from);
             let to_whitelisted = whitelist.iter().any(|a| a.clone() == to);
 
+            // Whitelist only bypasses the KYC verification/expiry check —
+            // AML flags and risk score are still enforced for whitelisted addresses.
+            let current_time = env.ledger().timestamp();
+
             if !from_whitelisted || !to_whitelisted {
                 let from_kyc = Self::get_kyc_status(env.clone(), from.clone());
                 let to_kyc = Self::get_kyc_status(env.clone(), to.clone());
@@ -397,24 +403,47 @@ impl ComplianceRegistry {
                     return false;
                 }
 
-                let current_time = env.ledger().timestamp();
-                if from_kyc.expiry_date < current_time || to_kyc.expiry_date < current_time {
+                // Reject expired KYC — expiry_date 0 means never set, treat as expired
+                if from_kyc.expiry_date == 0 || from_kyc.expiry_date < current_time {
+                    return false;
+                }
+                if to_kyc.expiry_date == 0 || to_kyc.expiry_date < current_time {
                     return false;
                 }
             }
+
+            // 3. AML flag check — enforced for all participants including whitelisted
+            let from_kyc = Self::get_kyc_status(env.clone(), from.clone());
+            let to_kyc = Self::get_kyc_status(env.clone(), to.clone());
+
+            if from_kyc.aml_flags.len() > 0 || to_kyc.aml_flags.len() > 0 {
+                return false;
+            }
+
+            // 4. Risk score check — reject high-risk participants (score >= 8 out of 10)
+            if from_kyc.risk_score >= 8 || to_kyc.risk_score >= 8 {
+                return false;
+            }
         }
 
+        // 5. Transfer limits — applied to sender; receiver limit check is read-only
         let transfer_restrictions: bool = env
             .storage()
             .instance()
             .get(&Symbol::new(&env, "transfer_restrictions"))
             .unwrap_or(false);
 
-        if transfer_restrictions && !Self::check_transfer_limits(env.clone(), from.clone(), amount)
-        {
-            return false;
+        if transfer_restrictions {
+            if !Self::check_transfer_limits(env.clone(), from.clone(), amount) {
+                return false;
+            }
+            // Check receiver has capacity without consuming their limit
+            if !Self::check_transfer_limits_readonly(env.clone(), to.clone(), amount) {
+                return false;
+            }
         }
 
+        // 6. Regulatory rules — always enforced, independent of transfer_restrictions flag
         if !Self::evaluate_regulatory_rules(env.clone(), from.clone(), to.clone(), amount) {
             return false;
         }
@@ -485,6 +514,7 @@ impl ComplianceRegistry {
     }
 
     pub fn check_outbound_participant(env: Env, participant: Address, amount: i128) -> bool {
+        // 1. Blacklist check
         let blacklist: Vec<Address> = env
             .storage()
             .instance()
@@ -505,11 +535,22 @@ impl ComplianceRegistry {
 
         if kyc_required {
             let kyc = Self::get_kyc_status(env.clone(), participant.clone());
+
             if !kyc.is_verified {
                 return false;
             }
+
+            // expiry_date 0 means never set — treat as expired
             let current_time = env.ledger().timestamp();
-            if kyc.expiry_date < current_time {
+            if kyc.expiry_date == 0 || kyc.expiry_date < current_time {
+                return false;
+            }
+
+            // AML flags and high risk score block outbound operations
+            if kyc.aml_flags.len() > 0 {
+                return false;
+            }
+            if kyc.risk_score >= 8 {
                 return false;
             }
         }
@@ -583,6 +624,53 @@ impl ComplianceRegistry {
         map.set(user, limits);
         env.storage().instance().set(&map_key, &map);
         true
+    }
+
+    /// Read-only variant of check_transfer_limits — verifies capacity without consuming limits.
+    /// Used to validate the receiver side of a transfer without side effects.
+    fn check_transfer_limits_readonly(env: Env, user: Address, amount: i128) -> bool {
+        let map_key = Symbol::new(&env, "xfer_lim");
+        let map: Map<Address, TransferLimits> = env
+            .storage()
+            .instance()
+            .get(&map_key)
+            .unwrap_or(Map::new(&env));
+
+        let limits: TransferLimits = map.get(user).unwrap_or(TransferLimits {
+            daily_limit: 10000,
+            monthly_limit: 100000,
+            annual_limit: 1000000,
+            remaining_daily: 10000,
+            remaining_monthly: 100000,
+            remaining_annual: 1000000,
+            last_reset_daily: 0,
+            last_reset_monthly: 0,
+            last_reset_annual: 0,
+        });
+
+        let current_time = env.ledger().timestamp();
+        let day_in_seconds: u64 = 86400;
+        let month_in_seconds: u64 = 30 * day_in_seconds;
+        let year_in_seconds: u64 = 365 * day_in_seconds;
+
+        // Compute effective remaining after potential resets (without writing)
+        let effective_daily = if current_time - limits.last_reset_daily >= day_in_seconds {
+            limits.daily_limit
+        } else {
+            limits.remaining_daily
+        };
+        let effective_monthly = if current_time - limits.last_reset_monthly >= month_in_seconds {
+            limits.monthly_limit
+        } else {
+            limits.remaining_monthly
+        };
+        let effective_annual = if current_time - limits.last_reset_annual >= year_in_seconds {
+            limits.annual_limit
+        } else {
+            limits.remaining_annual
+        };
+
+        amount <= effective_daily && amount <= effective_monthly && amount <= effective_annual
     }
 
     pub fn set_transfer_limits(env: Env, auth: Address, user: Address, limits: TransferLimits) {

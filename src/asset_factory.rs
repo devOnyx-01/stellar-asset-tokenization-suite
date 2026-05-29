@@ -21,6 +21,7 @@ pub enum AssetFactoryError {
     AlreadyInitialized = 9,
     TemplateNotActive = 10,
     NotInitialized = 11,
+    Overflow = 12,
 }
 
 #[contracttype]
@@ -109,9 +110,6 @@ impl AssetFactory {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "admin"), &admin);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "assets"), &Vec::<Address>::new(&env));
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "asset_count"), &0u32);
@@ -253,28 +251,10 @@ impl AssetFactory {
             upgrade_proposals: Vec::new(&env),
         };
 
-        // Update registry
+        // Update registry — single source of truth for all asset data
         let mut registry = registry;
         registry.set(config.symbol, asset_info);
         env.storage().instance().set(&Symbol::new(&env, "registry"), &registry);
-
-        // Update assets list
-        let mut assets: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "assets"))
-            .unwrap_or(Vec::new(&env));
-        assets.push_back(token_address.clone());
-        env.storage().instance().set(&Symbol::new(&env, "assets"), &assets);
-
-        // Update count
-        let mut count: u32 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "asset_count"))
-            .unwrap_or(0u32);
-        count += 1;
-        env.storage().instance().set(&Symbol::new(&env, "asset_count"), &count);
 
         token_address
     }
@@ -309,61 +289,65 @@ impl AssetFactory {
             &spec.dividend_distributor,
         );
 
-        let asset_key = Symbol::new(&env, &spec.asset_symbol.to_string());
         let asset_info = AssetInfo {
             name: spec.asset_name,
-            symbol: spec.asset_symbol,
+            symbol: spec.asset_symbol.clone(),
             total_supply: spec.total_supply,
             decimals: spec.decimals,
-            asset_type: spec.asset_type,
+            asset_class: AssetClass::Security, // default; caller should use create_asset for typed classes
             metadata: spec.metadata.clone(),
             compliance_registry: spec.compliance_registry,
             dividend_distributor: spec.dividend_distributor,
             token_address: spec.token_contract.clone(),
             created_at: env.ledger().timestamp(),
             is_paused: false,
+            template_version: 0,
+            upgrade_proposals: Vec::new(&env),
         };
-        env.storage().instance().set(&asset_key, &asset_info);
 
-        let mut assets: Vec<Address> = env
+        // Write into the registry Map — single source of truth
+        let mut registry: Map<Symbol, AssetInfo> = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "assets"))
-            .unwrap_or(Vec::new(&env));
-        assets.push_back(spec.token_contract.clone());
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "assets"), &assets);
+            .get(&Symbol::new(&env, "registry"))
+            .unwrap_or(Map::new(&env));
 
-        let mut count: u32 = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "asset_count"))
-            .unwrap_or(0u32);
-        count += 1;
+        if registry.has(&spec.asset_symbol) {
+            panic_with_error!(&env, AssetFactoryError::AssetAlreadyExists);
+        }
+
+        registry.set(spec.asset_symbol, asset_info);
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, "asset_count"), &count);
+            .set(&Symbol::new(&env, "registry"), &registry);
 
         spec.token_contract
     }
 
     pub fn get_asset_info(env: Env, symbol: Symbol) -> AssetInfo {
-        let asset_key = Symbol::new(&env, &symbol.to_string());
-        env.storage()
+        let registry: Map<Symbol, AssetInfo> = env
+            .storage()
             .instance()
-            .get(&asset_key)
+            .get(&Symbol::new(&env, "registry"))
+            .unwrap_or(Map::new(&env));
+
+        registry
+            .get(symbol)
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); })
     }
 
     pub fn list_assets(env: Env) -> Vec<AssetInfo> {
-        let _assets: Vec<Address> = env
+        let registry: Map<Symbol, AssetInfo> = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "assets"))
-            .unwrap_or(Vec::new(&env));
+            .get(&Symbol::new(&env, "registry"))
+            .unwrap_or(Map::new(&env));
 
-        Vec::<AssetInfo>::new(&env)
+        let mut result = Vec::<AssetInfo>::new(&env);
+        for (_symbol, asset_info) in registry.iter() {
+            result.push_back(asset_info);
+        }
+        result
     }
 
     pub fn set_asset_pause_status(env: Env, auth: Address, symbol: Symbol, paused: bool) {
@@ -378,15 +362,19 @@ impl AssetFactory {
 
         Self::check_version(&env);
 
-        let asset_key = Symbol::new(&env, &symbol.to_string());
-        let mut asset_info: AssetInfo = env
+        let mut registry: Map<Symbol, AssetInfo> = env
             .storage()
             .instance()
-            .get(&asset_key)
+            .get(&Symbol::new(&env, "registry"))
+            .unwrap_or(Map::new(&env));
+
+        let mut asset_info = registry
+            .get(symbol.clone())
             .unwrap_or_else(|| { panic_with_error!(&env, AssetFactoryError::AssetNotFound); });
 
         asset_info.is_paused = paused;
-        env.storage().instance().set(&asset_key, &asset_info);
+        registry.set(symbol, asset_info);
+        env.storage().instance().set(&Symbol::new(&env, "registry"), &registry);
     }
 
     pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
@@ -487,7 +475,9 @@ impl AssetFactory {
 
         // Update asset info
         asset_info.token_address = new_token_address;
-        asset_info.template_version += 1;
+        asset_info.template_version = asset_info.template_version
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, AssetFactoryError::Overflow));
 
         // Update registry
         let mut registry = registry;
@@ -534,9 +524,11 @@ impl AssetFactory {
 
     /// Get asset count
     pub fn get_asset_count(env: Env) -> u32 {
-        env.storage()
+        let registry: Map<Symbol, AssetInfo> = env
+            .storage()
             .instance()
-            .get(&Symbol::new(&env, "asset_count"))
-            .unwrap_or(0u32)
+            .get(&Symbol::new(&env, "registry"))
+            .unwrap_or(Map::new(&env));
+        registry.len()
     }
 }
