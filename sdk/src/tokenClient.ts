@@ -6,10 +6,7 @@ import {
   Address,
   Contract,
   xdr,
-  ScInt,
-  ScSymbol,
-  scValToNative,
-  Keypair
+  ScInt
 } from 'stellar-sdk';
 import { 
   AssetInfo, 
@@ -691,12 +688,14 @@ export class TokenClient {
     throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
-  private handleError(error: any): RWASDKErrorClass {
+  private handleError(error: unknown): RWASDKErrorClass {
     if (error instanceof RWASDKErrorClass) {
       return error;
     }
 
-    const message = error.message || String(error);
+    const message = (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string')
+      ? (error as Record<string, string>).message
+      : String(error);
 
     if (message.includes('timeout')) {
       return new RWASDKErrorClass(ErrorCode.TIMEOUT, message);
@@ -708,13 +707,6 @@ export class TokenClient {
 
     if (message.includes('unauthorized')) {
       return new RWASDKErrorClass(ErrorCode.UNAUTHORIZED, message);
-    }
-
-    // Try to parse Soroban contract error numbers (e.g. "ContractError(201)")
-    const match = message.match(/ContractError\((\d+)\)/);
-    if (match) {
-      const code = contractErrorToCode(parseInt(match[1]));
-      return new RWASDKErrorClass(code, message);
     }
 
     return new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, message);

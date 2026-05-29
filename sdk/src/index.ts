@@ -52,7 +52,11 @@ export class StellarRWASDK {
     this.config = config;
     
     // Initialize all clients
-    this.assetFactory = new AssetFactory(config);
+    this.assetFactory = new AssetFactory(
+      config.stellar.serverUrl,
+      config.contracts.assetFactory,
+      config.stellar.passphrase
+    );
     this.complianceClient = new ComplianceClient(config);
     this.dividendClient = new DividendClient(config);
     this.marketClient = new MarketClient(config);
@@ -84,7 +88,11 @@ export class StellarRWASDK {
     this.config = { ...this.config, ...newConfig };
     
     // Reinitialize clients with new config
-    this.assetFactory = new AssetFactory(this.config);
+    this.assetFactory = new AssetFactory(
+      this.config.stellar.serverUrl,
+      this.config.contracts.assetFactory,
+      this.config.stellar.passphrase
+    );
     this.complianceClient = new ComplianceClient(this.config);
     this.dividendClient = new DividendClient(this.config);
     this.marketClient = new MarketClient(this.config);
@@ -345,16 +353,26 @@ export function createStellarRWASDK(
 // Utility functions
 export function isValidAddress(address: string): boolean {
   try {
-    new (require('stellar-sdk')).Address(address);
+    const { Address: StellarAddress } = require('stellar-sdk');
+    new StellarAddress(address);
     return true;
   } catch {
     return false;
   }
 }
 
+function safeBigInt(value: string | number): bigint {
+  try {
+    const str = typeof value === 'number' ? Math.floor(value).toString() : value;
+    return BigInt(str);
+  } catch {
+    return 0n;
+  }
+}
+
 export function formatAmount(amount: string | number, decimals: number = 18): string {
-  const num = typeof amount === 'string' ? BigInt(amount) : BigInt(amount);
-  const divisor = BigInt(10 ** decimals);
+  const num = safeBigInt(amount);
+  const divisor = safeBigInt(10) ** safeBigInt(decimals);
   const whole = num / divisor;
   const fractional = num % divisor;
   
@@ -370,9 +388,9 @@ export function formatAmount(amount: string | number, decimals: number = 18): st
 
 export function parseAmount(amount: string, decimals: number = 18): string {
   const [whole, fractional = ''] = amount.split('.');
-  const wholeBigInt = BigInt(whole);
-  const fractionalBigInt = fractional ? BigInt(fractional.padEnd(decimals, '0').slice(0, decimals)) : 0n;
-  const divisor = BigInt(10 ** decimals);
+  const wholeBigInt = safeBigInt(whole.replace(/[^0-9-]/g, '') || '0');
+  const fractionalBigInt = fractional ? safeBigInt(fractional.padEnd(decimals, '0').slice(0, decimals)) : 0n;
+  const divisor = safeBigInt(10) ** safeBigInt(decimals);
   
   return (wholeBigInt * divisor + fractionalBigInt).toString();
 }

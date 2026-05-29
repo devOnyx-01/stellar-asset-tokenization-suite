@@ -355,7 +355,7 @@ export class AssetFactory {
     const config: AssetConfig = {
       ...baseConfig,
       asset_class: AssetClass.Security,
-      compliance_rules,
+      compliance_rules: complianceRules,
       metadata
     };
 
@@ -378,16 +378,14 @@ export class AssetFactory {
    * @param assetClass - The asset class to generate a template for.
    * @returns A partially-populated `AssetConfig` with class-appropriate defaults.
    */
-  getAssetClassTemplate(assetClass: AssetClass): AssetConfig {
-    const baseTemplate: Omit<AssetConfig, 'name' | 'symbol' | 'total_supply'> = {
+  getAssetClassTemplate(assetClass: AssetClass): Omit<AssetConfig, 'name' | 'symbol' | 'total_supply'> {
+    return {
       decimals: 18,
       asset_class: assetClass,
       compliance_rules: this.getDefaultComplianceRules(assetClass),
       dividend_schedule: this.getDefaultDividendSchedule(assetClass),
       metadata: {}
     };
-
-    return baseTemplate as AssetConfig;
   }
 
   /**
@@ -449,7 +447,8 @@ export class AssetFactory {
       }
 
       const registry = scValToNative(result.val);
-      return Object.values(registry).map((asset: any) => ({
+      if (!registry || typeof registry !== 'object') return [];
+      return Object.values(registry).map((asset: Record<string, any>) => ({
         symbol: asset.symbol,
         name: asset.name,
         asset_class: asset.asset_class,
@@ -498,16 +497,21 @@ export class AssetFactory {
   ): Promise<any> {
     const account = await this.server.getAccount(signer.publicKey());
     
-    const configScVal = nativeToScVal(config, {
-      type: {
-        [AssetClass.RealEstate]: 'AssetConfig',
-        [AssetClass.Commodity]: 'AssetConfig',
-        [AssetClass.Invoice]: 'AssetConfig',
-        [AssetClass.Security]: 'AssetConfig',
-        [AssetClass.Art]: 'AssetConfig',
-        [AssetClass.CarbonCredit]: 'AssetConfig'
-      }[config.asset_class]
-    });
+    const typeMap: Record<AssetClass, string> = {
+      [AssetClass.RealEstate]: 'AssetConfig',
+      [AssetClass.Commodity]: 'AssetConfig',
+      [AssetClass.Invoice]: 'AssetConfig',
+      [AssetClass.Security]: 'AssetConfig',
+      [AssetClass.Art]: 'AssetConfig',
+      [AssetClass.CarbonCredit]: 'AssetConfig'
+    };
+
+    const assetType = typeMap[config.asset_class];
+    if (!assetType) {
+      throw new Error(`Unknown asset class: ${config.asset_class}`);
+    }
+
+    const configScVal = nativeToScVal(config, { type: assetType });
 
     return new TransactionBuilder(account, {
       fee: '100',
