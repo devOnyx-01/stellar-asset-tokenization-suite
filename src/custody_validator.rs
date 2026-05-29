@@ -44,6 +44,7 @@ pub enum CustodyError {
     AlreadyAtLatestVersion = 28,
     InvalidAttestation = 29,
     CustodianNotFound = 30,
+    InvalidParameters = 31,
 }
 
 #[contracttype]
@@ -466,6 +467,10 @@ impl CustodyValidator {
 
         Self::check_version(&env);
 
+        if bond_required < 0 {
+            panic_with_error!(&env, CustodyError::InvalidParameters);
+        }
+
         let custodian = CustodianRegistry {
             custodian_address: custodian_address.clone(),
             name,
@@ -724,6 +729,10 @@ impl CustodyValidator {
 
     pub fn submit_attestation(env: Env, attestation: CustodyAttestation) -> u64 {
         Self::check_version(&env);
+
+        if attestation.value < 0 {
+            panic_with_error!(&env, CustodyError::InvalidParameters);
+        }
 
         if !Self::verify_attestation(&env, &attestation) {
             panic_with_error!(&env, CustodyError::InvalidAttestation);

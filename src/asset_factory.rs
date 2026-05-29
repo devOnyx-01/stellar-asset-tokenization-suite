@@ -189,6 +189,21 @@ impl AssetFactory {
             panic_with_error!(&env, AssetFactoryError::InvalidParameters);
         }
 
+        // Validate compliance rules
+        if config.compliance_rules.transfer_limits < 0 {
+            panic_with_error!(&env, AssetFactoryError::InvalidParameters);
+        }
+
+        // Validate dividend schedule if present
+        if let Some(schedule) = &config.dividend_schedule {
+            if schedule.frequency_days == 0 || schedule.next_distribution_date < env.ledger().timestamp() {
+                panic_with_error!(&env, AssetFactoryError::InvalidParameters);
+            }
+            if schedule.total_distributed < 0 {
+                panic_with_error!(&env, AssetFactoryError::InvalidParameters);
+            }
+        }
+
         // Check if asset already exists
         let registry: Map<Symbol, AssetInfo> = env
             .storage()

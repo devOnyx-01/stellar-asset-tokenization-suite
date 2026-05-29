@@ -28,6 +28,7 @@ pub enum MarketError {
     StorageOutdated = 13,
     MarketNotInitialized = 14,
     AlreadyAtLatestVersion = 15,
+    InvalidParameters = 16,
 }
 
 #[contracttype]
@@ -99,6 +100,18 @@ impl SecondaryMarket {
     ) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, MarketError::AlreadyInitialized);
+        }
+
+        if fee_rate_bps < 0 || fee_rate_bps > 10000 {
+            panic_with_error!(&env, MarketError::InvalidParameters);
+        }
+
+        if min_order_size <= 0 {
+            panic_with_error!(&env, MarketError::InvalidParameters);
+        }
+
+        if max_price_deviation_bps < 0 || max_price_deviation_bps > 10000 {
+            panic_with_error!(&env, MarketError::InvalidParameters);
         }
 
         let config = MarketConfig {
@@ -205,6 +218,9 @@ impl SecondaryMarket {
         }
         if expiry <= env.ledger().timestamp() {
             panic_with_error!(&env, MarketError::OrderExpired);
+        }
+        if min_fill < 0 || min_fill > amount {
+            panic_with_error!(&env, MarketError::InvalidParameters);
         }
 
         // 3. Circuit Breaker

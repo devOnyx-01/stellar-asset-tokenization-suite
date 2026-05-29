@@ -29,6 +29,7 @@ pub enum DividendError {
     StorageOutdated = 17,
     DistributorNotInitialized = 18,
     AlreadyAtLatestVersion = 19,
+    InvalidParameters = 20,
 }
 
 #[contracttype]
@@ -297,6 +298,10 @@ impl DividendDistributor {
     ) -> u64 {
         if amount <= 0 {
             panic_with_error!(&env, DividendError::InvalidAmount);
+        }
+
+        if claim_deadline <= env.ledger().timestamp() {
+            panic_with_error!(&env, DividendError::InvalidParameters);
         }
 
         crate::shared_admin::require_admin(&env, &auth);
