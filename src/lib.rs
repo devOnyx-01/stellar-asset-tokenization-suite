@@ -8,6 +8,13 @@ mod custody_validator;
 mod dividend_distributor;
 mod rwa_token;
 mod secondary_market;
+pub mod shared_admin;
+pub mod real_estate;
+pub mod commodity;
+pub mod invoice;
+pub mod security;
+pub mod art;
+pub mod carbon_credit;
 
 use asset_factory::AssetFactoryClient;
 use compliance_registry::ComplianceRegistryClient;
@@ -74,11 +81,23 @@ impl StellarRWASuite {
         auth: Address,
         market: Address,
         admin: Address,
+        base_currency: Address,
+        compliance_registry: Address,
+        dividend_distributor: Address,
         fee_rate: i64,
         min_order_size: i128,
+        max_price_deviation_bps: i64,
     ) {
         let c = SecondaryMarketClient::new(&env, &market);
-        c.initialize(&auth, &admin, &fee_rate, &min_order_size);
+        c.initialize(
+            &admin,
+            &base_currency,
+            &compliance_registry,
+            &dividend_distributor,
+            &fee_rate,
+            &min_order_size,
+            &max_price_deviation_bps,
+        );
     }
 
     pub fn init_custody_validator(

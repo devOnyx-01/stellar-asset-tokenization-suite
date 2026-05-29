@@ -20,7 +20,7 @@ import {
   RWASDKError, 
   ErrorCode 
 } from './types';
-import { RWASDKError as RWASDKErrorClass } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
 
 export class DividendClient {
   private server: Server;
@@ -344,7 +344,7 @@ export class DividendClient {
     try {
       // This would query dividend claim events from the contract
       // For now, return a placeholder implementation
-      throw new Error('getUserDividendHistory not implemented');
+      throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getUserDividendHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -391,49 +391,49 @@ export class DividendClient {
   private convertDividendConfigToScVal(config: DividendConfig): xdr.ScVal {
     // This would convert DividendConfig to ScVal
     // For now, return a placeholder implementation
-    throw new Error('convertDividendConfigToScVal not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertDividendConfigToScVal not implemented');
   }
 
   private convertScValToDistribution(scVal: xdr.ScVal): DividendDistribution {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToDistribution not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToDistribution not implemented');
   }
 
   private convertScValToDistributionArray(scVal: xdr.ScVal): DividendDistribution[] {
     // This would parse the ScVal array returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToDistributionArray not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToDistributionArray not implemented');
   }
 
   private convertScValToClaimInfo(scVal: xdr.ScVal): ClaimInfo {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToClaimInfo not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToClaimInfo not implemented');
   }
 
   private extractDistributionId(resultMetaXdr: string): number {
     // This would extract the distribution ID from transaction result
     // For now, return a placeholder implementation
-    throw new Error('extractDistributionId not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractDistributionId not implemented');
   }
 
   private extractClaimedAmount(resultMetaXdr: string): string {
     // This would extract the claimed amount from transaction result
     // For now, return a placeholder implementation
-    throw new Error('extractClaimedAmount not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractClaimedAmount not implemented');
   }
 
   private extractClaimedAmounts(resultMetaXdr: string): string[] {
     // This would extract the claimed amounts from transaction result
     // For now, return a placeholder implementation
-    throw new Error('extractClaimedAmounts not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractClaimedAmounts not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
     // This would sign the transaction with the signer's key
     // For now, return a placeholder implementation
-    throw new Error('signTransaction not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
   private handleError(error: any): RWASDKErrorClass {

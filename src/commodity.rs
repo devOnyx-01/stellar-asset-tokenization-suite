@@ -1,0 +1,41 @@
+use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
+use crate::asset_factory::AssetConfig;
+
+#[contracttype]
+#[derive(Clone)]
+pub struct CommodityConfig {
+    pub commodity_type: Symbol,
+    pub vault_location: Symbol,
+    pub custody_vault: Address,
+    pub purity_grade: Symbol,
+    pub physical_redemption_window: u64,
+    pub quality_attestation: Address,
+}
+
+pub fn create_commodity_config(
+    env: Env,
+    base_config: AssetConfig,
+    commodity_config: CommodityConfig,
+) -> AssetConfig {
+    let valid_grades = Vec::from_array(&env, [
+        Symbol::new(&env, "999"),
+        Symbol::new(&env, "995"),
+        Symbol::new(&env, "990"),
+        Symbol::new(&env, "750"),
+    ]);
+    
+    if !valid_grades.contains(&commodity_config.purity_grade) {
+        panic!("Invalid purity grade");
+    }
+
+    let mut metadata = base_config.metadata;
+    metadata.set(Symbol::new(&env, "commodity_type"), commodity_config.commodity_type);
+    metadata.set(Symbol::new(&env, "vault_location"), commodity_config.vault_location);
+    metadata.set(Symbol::new(&env, "purity_grade"), commodity_config.purity_grade);
+    metadata.set(Symbol::new(&env, "redemption_window"), Symbol::new(&env, &commodity_config.physical_redemption_window.to_string()));
+
+    AssetConfig {
+        metadata,
+        ..base_config
+    }
+}

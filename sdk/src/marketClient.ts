@@ -21,7 +21,7 @@ import {
   RWASDKError, 
   ErrorCode 
 } from './types';
-import { RWASDKError as RWASDKErrorClass } from './errors';
+import { RWASDKError as RWASDKErrorClass, contractErrorToCode } from './errors';
 
 export class MarketClient {
   private server: Server;
@@ -408,7 +408,7 @@ export class MarketClient {
     try {
       // This would query trade history and aggregate it into OHLCV data
       // For now, return a placeholder implementation
-      throw new Error('getPriceHistory not implemented');
+      throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'getPriceHistory not implemented');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -487,43 +487,43 @@ export class MarketClient {
   private convertMarketConfigToScVal(config: MarketConfig): xdr.ScVal {
     // This would convert MarketConfig to ScVal
     // For now, return a placeholder implementation
-    throw new Error('convertMarketConfigToScVal not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertMarketConfigToScVal not implemented');
   }
 
   private convertScValToOrderBook(scVal: xdr.ScVal): OrderBook {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToOrderBook not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrderBook not implemented');
   }
 
   private convertScValToOrder(scVal: xdr.ScVal): Order {
     // This would parse the ScVal returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToOrder not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrder not implemented');
   }
 
   private convertScValToOrderArray(scVal: xdr.ScVal): Order[] {
     // This would parse the ScVal array returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToOrderArray not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToOrderArray not implemented');
   }
 
   private convertScValToTradeArray(scVal: xdr.ScVal): Trade[] {
     // This would parse the ScVal array returned from the contract
     // For now, return a placeholder implementation
-    throw new Error('convertScValToTradeArray not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'convertScValToTradeArray not implemented');
   }
 
   private extractOrderId(resultMetaXdr: string): number {
     // This would extract the order ID from transaction result
     // For now, return a placeholder implementation
-    throw new Error('extractOrderId not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'extractOrderId not implemented');
   }
 
   private async signTransaction(transaction: any, signer: Address): Promise<any> {
     // This would sign the transaction with the signer's key
     // For now, return a placeholder implementation
-    throw new Error('signTransaction not implemented');
+    throw new RWASDKErrorClass(ErrorCode.CONTRACT_ERROR, 'signTransaction not implemented');
   }
 
   private handleError(error: any): RWASDKErrorClass {
