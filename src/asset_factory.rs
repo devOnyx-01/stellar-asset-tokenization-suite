@@ -118,6 +118,11 @@ impl AssetFactory {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "governance_threshold"), &6600u32); // 66% in basis points
+
+        env.events().publish(
+            (Symbol::new(&env, "factory_initialized"), auth),
+            admin,
+        );
     }
 
     /// Create a new RWA asset with deterministic address deployment
@@ -330,6 +335,11 @@ impl AssetFactory {
 
         asset_info.is_paused = paused;
         env.storage().instance().set(&asset_key, &asset_info);
+
+        env.events().publish(
+            (Symbol::new(&env, "asset_pause_status_changed"), symbol, auth),
+            paused,
+        );
     }
 
     pub fn update_admin(env: Env, auth: Address, new_admin: Address) {
@@ -344,6 +354,11 @@ impl AssetFactory {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "admin"), &new_admin);
+
+        env.events().publish(
+            (Symbol::new(&env, "factory_admin_updated"), auth),
+            new_admin,
+        );
     }
 
     /// Register a new template for an asset class
@@ -364,6 +379,11 @@ impl AssetFactory {
         
         templates.set(template.asset_class, template);
         env.storage().instance().set(&Symbol::new(&env, "templates"), &templates);
+
+        env.events().publish(
+            (Symbol::new(&env, "template_registered"), auth),
+            (template.asset_class, template.version, template.is_active),
+        );
     }
 
     /// Get template for a specific asset class
@@ -427,6 +447,11 @@ impl AssetFactory {
         let mut registry = registry;
         registry.set(symbol, asset_info);
         env.storage().instance().set(&Symbol::new(&env, "registry"), &registry);
+
+        env.events().publish(
+            (Symbol::new(&env, "asset_upgraded"), symbol, auth),
+            (new_token_address, asset_info.template_version),
+        );
     }
 
     /// Emergency pause all assets
@@ -453,6 +478,12 @@ impl AssetFactory {
         }
 
         env.storage().instance().set(&Symbol::new(&env, "registry"), &updated_registry);
+
+        let count: u32 = env.storage().instance().get(&Symbol::new(&env, "asset_count")).unwrap_or(0u32);
+        env.events().publish(
+            (Symbol::new(&env, "emergency_pause_all"), auth),
+            count,
+        );
     }
 
     /// Get all assets from registry
