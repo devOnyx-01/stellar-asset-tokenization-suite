@@ -22,6 +22,7 @@ import {
 import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError, TransactionError } from './errors';
 import { DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_PAGINATION_LIMIT, DEFAULT_ORDER_EXPIRY_HOURS, DEFAULT_PRICE_HISTORY_LIMIT, DEFAULT_MARKET_DEPTH } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateRange } from './validation';
 
 export class MarketClient {
   private server: Server;
@@ -30,6 +31,8 @@ export class MarketClient {
   private logger: Logger;
 
   constructor(config: RWASDKConfig) {
+    validateServerUrl(config.stellar.serverUrl, 'config.stellar.serverUrl');
+    validateAddress(config.contracts.secondaryMarket, 'config.contracts.secondaryMarket');
     this.config = config;
     this.server = new Server(config.stellar.serverUrl);
     this.contract = new Contract(config.contracts.secondaryMarket);
@@ -41,6 +44,10 @@ export class MarketClient {
     options: OrderOptions,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; orderId: number }> {
+    validateAddress(trader, 'trader');
+    validateAddress(options.tokenAddress, 'options.tokenAddress');
+    validateAmount(options.amount, 'options.amount');
+    validateAmount(options.price, 'options.price');
     this.logger.info('Creating buy order', { trader: trader.toString(), token: options.tokenAddress.toString(), amount: options.amount, price: options.price });
     try {
       const account = await this.server.getAccount(trader.toString());
@@ -88,6 +95,10 @@ export class MarketClient {
     options: OrderOptions,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; orderId: number }> {
+    validateAddress(trader, 'trader');
+    validateAddress(options.tokenAddress, 'options.tokenAddress');
+    validateAmount(options.amount, 'options.amount');
+    validateAmount(options.price, 'options.price');
     this.logger.info('Creating sell order', { trader: trader.toString(), token: options.tokenAddress.toString(), amount: options.amount, price: options.price });
     try {
       const account = await this.server.getAccount(trader.toString());
@@ -135,6 +146,8 @@ export class MarketClient {
     orderId: number,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(trader, 'trader');
+    validatePositiveInteger(orderId, 'orderId');
     this.logger.info('Cancelling order', { trader: trader.toString(), orderId });
     try {
       const account = await this.server.getAccount(trader.toString());
@@ -168,6 +181,8 @@ export class MarketClient {
     tokenAddress: Address,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(caller, 'caller');
+    validateAddress(tokenAddress, 'tokenAddress');
     this.logger.info('Matching orders', { caller: caller.toString(), token: tokenAddress.toString() });
     try {
       const account = await this.server.getAccount(caller.toString());
@@ -197,6 +212,7 @@ export class MarketClient {
   }
 
   async getOrderBook(tokenAddress: Address): Promise<OrderBook> {
+    validateAddress(tokenAddress, 'tokenAddress');
     try {
       const result = await this.contract.call('get_order_book', new Address(tokenAddress));
       const orderBook = this.convertScValToOrderBook(result.result);
@@ -207,6 +223,7 @@ export class MarketClient {
   }
 
   async getOrder(orderId: number): Promise<Order> {
+    validatePositiveInteger(orderId, 'orderId');
     try {
       const result = await this.contract.call('get_order', new ScInt(orderId));
       const order = this.convertScValToOrder(result.result);
@@ -217,6 +234,7 @@ export class MarketClient {
   }
 
   async getUserOrders(user: Address): Promise<Order[]> {
+    validateAddress(user, 'user');
     try {
       const result = await this.contract.call('get_user_orders', new Address(user));
       const orders = this.convertScValToOrderArray(result.result);
@@ -248,6 +266,8 @@ export class MarketClient {
     tokenAddress: Address,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(tokenAddress, 'tokenAddress');
     this.logger.info('Adding supported token', { token: tokenAddress.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());

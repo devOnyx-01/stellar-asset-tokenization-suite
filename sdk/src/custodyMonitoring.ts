@@ -3,36 +3,37 @@ import { Server, Keypair } from '@stellar/stellar-base';
 import axios from 'axios';
 import { REPUTATION_SCORE_LOW_THRESHOLD, YEAR_IN_MILLISECONDS, MONTH_IN_MILLISECONDS, DAY_IN_MILLISECONDS, MILLISECONDS_PER_MINUTE } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateNonEmptyString, validatePositiveInteger, validateServerUrl } from './validation';
 
 export interface CustodyAlert {
-    asset_id: string;
-    alert_type: 'attestation_expired' | 'attestation_expiring_soon' | 'invalid_attestation' | 'custodian_reputation_low' | 'insurance_lapsed';
+    assetId: string;
+    alertType: 'attestation_expired' | 'attestation_expiring_soon' | 'invalid_attestation' | 'custodian_reputation_low' | 'insurance_lapsed';
     severity: 'low' | 'medium' | 'high' | 'critical';
     message: string;
     timestamp: number;
-    recommended_action: string;
+    recommendedAction: string;
 }
 
 export interface CustodianMetrics {
-    custodian_address: string;
+    custodianAddress: string;
     name: string;
-    reputation_score: number;
-    total_attestations: number;
-    successful_disputes: number;
-    failed_disputes: number;
-    dispute_success_rate: number;
-    average_verification_time: number;
-    last_activity: number;
+    reputationScore: number;
+    totalAttestations: number;
+    successfulDisputes: number;
+    failedDisputes: number;
+    disputeSuccessRate: number;
+    averageVerificationTime: number;
+    lastActivity: number;
     status: 'active' | 'suspended' | 'under_review';
 }
 
 export interface AssetDepreciationData {
-    asset_id: string;
-    initial_value: number;
-    current_value: number;
-    depreciation_rate: number;
-    last_updated: number;
-    appraisal_history: Array<{
+    assetId: string;
+    initialValue: number;
+    currentValue: number;
+    depreciationRate: number;
+    lastUpdated: number;
+    appraisalHistory: Array<{
         timestamp: number;
         value: number;
         appraiser: string;
@@ -41,32 +42,32 @@ export interface AssetDepreciationData {
 }
 
 export interface InsuranceStatus {
-    asset_id: string;
+    assetId: string;
     provider: string;
-    policy_number: string;
-    coverage_amount: number;
-    premium_amount: number;
-    valid_until: number;
+    policyNumber: string;
+    coverageAmount: number;
+    premiumAmount: number;
+    validUntil: number;
     status: 'active' | 'expired' | 'lapsed' | 'claim_pending';
-    last_premium_paid: number;
-    auto_claim_enabled: boolean;
+    lastPremiumPaid: number;
+    autoClaimEnabled: boolean;
 }
 
 export interface MonitoringConfig {
-    alert_thresholds: {
-        attestation_expiry_warning_days: number;
-        minimum_reputation_score: number;
-        insurance_expiry_warning_days: number;
-        max_dispute_failure_rate: number;
+    alertThresholds: {
+        attestationExpiryWarningDays: number;
+        minimumReputationScore: number;
+        insuranceExpiryWarningDays: number;
+        maxDisputeFailureRate: number;
     };
-    notification_channels: {
+    notificationChannels: {
         email?: string[];
         webhook?: string;
         telegram?: string;
         slack?: string;
     };
-    monitoring_frequency: number;
-    auto_renewal_enabled: boolean;
+    monitoringFrequency: number;
+    autoRenewalEnabled: boolean;
 }
 
 export class CustodyMonitoring {
@@ -81,6 +82,8 @@ export class CustodyMonitoring {
         config: MonitoringConfig,
         serverUrl: string = 'https://horizon-testnet.stellar.org'
     ) {
+        validateServerUrl(serverUrl, 'serverUrl');
+        validatePositiveInteger(config.monitoringFrequency, 'monitoringFrequency');
         this.custodyClient = custodyClient;
         this.config = config;
         this.server = new Server(serverUrl);
@@ -100,7 +103,7 @@ export class CustodyMonitoring {
                     this.logger.error('Error in monitoring cycle:', { error });
                 }
             },
-            this.config.monitoring_frequency * MILLISECONDS_PER_MINUTE
+            this.config.monitoringFrequency * MILLISECONDS_PER_MINUTE
         );
     }
 
@@ -144,17 +147,17 @@ export class CustodyMonitoring {
             
             for (const [assetId, alertType] of contractAlerts) {
                 const validTypes = ['attestation_expired', 'attestation_expiring_soon', 'invalid_attestation', 'custodian_reputation_low', 'insurance_lapsed'] as const;
-            const safeAlertType: CustodyAlert['alert_type'] = validTypes.includes(alertType as any)
-              ? (alertType as CustodyAlert['alert_type'])
+            const safeAlertType: CustodyAlert['alertType'] = validTypes.includes(alertType as any)
+              ? (alertType as CustodyAlert['alertType'])
               : 'invalid_attestation';
 
             const alert: CustodyAlert = {
-                    asset_id: assetId,
-                    alert_type: safeAlertType,
+                    assetId: assetId,
+                    alertType: safeAlertType,
                     severity: this.determineAlertSeverity(alertType),
                     message: this.generateAlertMessage(alertType, assetId),
                     timestamp: Date.now(),
-                    recommended_action: this.getRecommendedAction(alertType)
+                    recommendedAction: this.getRecommendedAction(alertType)
                 };
                 
                 alerts.push(alert);
@@ -183,30 +186,30 @@ export class CustodyMonitoring {
             const custodians = await this.custodyClient.listActiveCustodians();
             
             for (const custodian of custodians) {
-                if (custodian.reputation_score < this.config.alert_thresholds.minimum_reputation_score) {
+                if (custodian.reputationScore < this.config.alertThresholds.minimumReputationScore) {
                     const alert: CustodyAlert = {
-                        asset_id: custodian.custodian_address,
-                        alert_type: 'custodian_reputation_low',
-                        severity: custodian.reputation_score < REPUTATION_SCORE_LOW_THRESHOLD ? 'critical' : 'high',
-                        message: `Custodian ${custodian.name} has low reputation score: ${custodian.reputation_score}`,
+                        assetId: custodian.custodianAddress,
+                        alertType: 'custodian_reputation_low',
+                        severity: custodian.reputationScore < REPUTATION_SCORE_LOW_THRESHOLD ? 'critical' : 'high',
+                        message: `Custodian ${custodian.name} has low reputation score: ${custodian.reputationScore}`,
                         timestamp: Date.now(),
-                        recommended_action: 'Review custodian performance and consider suspension'
+                        recommendedAction: 'Review custodian performance and consider suspension'
                     };
                     
                     alerts.push(alert);
                 }
                 
-                const totalDisputes = custodian.successful_disputes + custodian.failed_disputes;
+                const totalDisputes = custodian.successfulDisputes + custodian.failedDisputes;
                 if (totalDisputes > 0) {
-                    const failureRate = custodian.failed_disputes / totalDisputes;
-                    if (failureRate > this.config.alert_thresholds.max_dispute_failure_rate) {
+                    const failureRate = custodian.failedDisputes / totalDisputes;
+                    if (failureRate > this.config.alertThresholds.maxDisputeFailureRate) {
                         const alert: CustodyAlert = {
-                            asset_id: custodian.custodian_address,
-                            alert_type: 'custodian_reputation_low',
+                            assetId: custodian.custodianAddress,
+                            alertType: 'custodian_reputation_low',
                             severity: 'high',
                             message: `Custodian ${custodian.name} has high dispute failure rate: ${(failureRate * 100).toFixed(1)}%`,
                             timestamp: Date.now(),
-                            recommended_action: 'Investigate dispute patterns and provide additional training'
+                            recommendedAction: 'Investigate dispute patterns and provide additional training'
                         };
                         
                         alerts.push(alert);
@@ -286,15 +289,15 @@ export class CustodyMonitoring {
         const mediumAlerts = alerts.filter(alert => alert.severity === 'medium');
         const lowAlerts = alerts.filter(alert => alert.severity === 'low');
 
-        if (this.config.notification_channels.email) {
+        if (this.config.notificationChannels.email) {
             await this.sendEmailAlerts(criticalAlerts.concat(highAlerts));
         }
         
-        if (this.config.notification_channels.webhook) {
+        if (this.config.notificationChannels.webhook) {
             await this.sendWebhookAlerts(alerts);
         }
         
-        if (this.config.notification_channels.slack) {
+        if (this.config.notificationChannels.slack) {
             await this.sendSlackAlerts(criticalAlerts.concat(highAlerts));
         }
         
@@ -308,10 +311,10 @@ export class CustodyMonitoring {
     }
 
     private async sendWebhookAlerts(alerts: CustodyAlert[]): Promise<void> {
-        if (!this.config.notification_channels.webhook) return;
+        if (!this.config.notificationChannels.webhook) return;
         
         try {
-            await axios.post(this.config.notification_channels.webhook, {
+            await axios.post(this.config.notificationChannels.webhook, {
                 alerts,
                 timestamp: Date.now(),
                 source: 'custody-monitoring'
@@ -326,69 +329,75 @@ export class CustodyMonitoring {
     }
 
     async getCustodianMetrics(custodianAddress: string): Promise<CustodianMetrics> {
+        validateAddress(custodianAddress, 'custodianAddress');
         const custodian = await this.custodyClient.getCustodianInfo(custodianAddress);
         
-        const totalDisputes = custodian.successful_disputes + custodian.failed_disputes;
+        const totalDisputes = custodian.successfulDisputes + custodian.failedDisputes;
         const disputeSuccessRate = totalDisputes > 0 ? 
-            (custodian.successful_disputes / totalDisputes) * 100 : 100;
+            (custodian.successfulDisputes / totalDisputes) * 100 : 100;
         
         return {
-            custodian_address: custodian.custodian_address,
+            custodianAddress: custodian.custodianAddress,
             name: custodian.name,
-            reputation_score: custodian.reputation_score,
-            total_attestations: custodian.total_attestations,
-            successful_disputes: custodian.successful_disputes,
-            failed_disputes: custodian.failed_disputes,
-            dispute_success_rate: disputeSuccessRate,
-            average_verification_time: 0,
-            last_activity: Date.now(),
-            status: custodian.is_active ? 'active' : 'suspended'
+            reputationScore: custodian.reputationScore,
+            totalAttestations: custodian.totalAttestations,
+            successfulDisputes: custodian.successfulDisputes,
+            failedDisputes: custodian.failedDisputes,
+            disputeSuccessRate: disputeSuccessRate,
+            averageVerificationTime: 0,
+            lastActivity: Date.now(),
+            status: custodian.isActive ? 'active' : 'suspended'
         };
     }
 
     async trackAssetDepreciation(assetId: string): Promise<AssetDepreciationData> {
+        validateNonEmptyString(assetId, 'assetId');
         return {
-            asset_id: assetId,
-            initial_value: 1000000,
-            current_value: 950000,
-            depreciation_rate: 5,
-            last_updated: Date.now(),
-            appraisal_history: []
+            assetId: assetId,
+            initialValue: 1000000,
+            currentValue: 950000,
+            depreciationRate: 5,
+            lastUpdated: Date.now(),
+            appraisalHistory: []
         };
     }
 
     async verifyInsuranceStatus(assetId: string): Promise<InsuranceStatus> {
+        validateNonEmptyString(assetId, 'assetId');
         return {
-            asset_id: assetId,
+            assetId: assetId,
             provider: 'Global Insurance Co.',
-            policy_number: 'POL-123456',
-            coverage_amount: 1000000,
-            premium_amount: 5000,
-            valid_until: Date.now() + YEAR_IN_MILLISECONDS,
+            policyNumber: 'POL-123456',
+            coverageAmount: 1000000,
+            premiumAmount: 5000,
+            validUntil: Date.now() + YEAR_IN_MILLISECONDS,
             status: 'active',
-            last_premium_paid: Date.now() - MONTH_IN_MILLISECONDS,
-            auto_claim_enabled: true
+            lastPremiumPaid: Date.now() - MONTH_IN_MILLISECONDS,
+            autoClaimEnabled: true
         };
     }
 
     updateConfig(newConfig: Partial<MonitoringConfig>): void {
+        if (newConfig.monitoringFrequency !== undefined) {
+            validatePositiveInteger(newConfig.monitoringFrequency, 'monitoringFrequency');
+        }
         this.config = { ...this.config, ...newConfig };
         
-        if (newConfig.monitoring_frequency && this.monitoringInterval) {
+        if (newConfig.monitoringFrequency && this.monitoringInterval) {
             this.stopMonitoring();
             this.startMonitoring();
         }
     }
 
     getMonitoringStatus(): {
-        is_active: boolean;
+        isActive: boolean;
         config: MonitoringConfig;
-        last_check: number;
+        lastCheck: number;
     } {
         return {
-            is_active: !!this.monitoringInterval,
+            isActive: !!this.monitoringInterval,
             config: this.config,
-            last_check: Date.now()
+            lastCheck: Date.now()
         };
     }
 }

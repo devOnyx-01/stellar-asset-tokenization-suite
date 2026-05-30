@@ -10,6 +10,7 @@ import { CustodyMonitoring } from './custodyMonitoring';
 import { InvalidParametersError, RWASDKError, NetworkError, ContractError } from './errors';
 import { DEFAULT_DECIMALS, DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, STELLAR_NETWORKS } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateContractId, validateBoolean, validateEnum, validateRange } from './validation';
 
 // Type exports
 export * from './types';
@@ -51,6 +52,8 @@ export class StellarRWASDK {
   public custodyClient: CustodyClient;
 
   constructor(config: RWASDKConfig) {
+    validateServerUrl(config.stellar.serverUrl, 'config.stellar.serverUrl');
+    validateNonEmptyString(config.stellar.passphrase, 'config.stellar.passphrase');
     this.config = config;
     this.logger = createLogger('StellarRWASDK');
     this.logger.info('Initializing SDK', { network: config.stellar.network, serverUrl: config.stellar.serverUrl });
@@ -76,6 +79,9 @@ export class StellarRWASDK {
    * Create a token client for a specific RWA token
    */
   createTokenClient(tokenAddress: Address): TokenClient {
+    if (tokenAddress == null) {
+      throw new InvalidParametersError('tokenAddress is required');
+    }
     return new TokenClient(this.config, tokenAddress);
   }
 
@@ -90,6 +96,27 @@ export class StellarRWASDK {
    * Update configuration
    */
   updateConfig(newConfig: Partial<RWASDKConfig>): void {
+    if (newConfig.stellar?.serverUrl) {
+      validateServerUrl(newConfig.stellar.serverUrl, 'config.stellar.serverUrl');
+    }
+    if (newConfig.stellar?.passphrase) {
+      validateNonEmptyString(newConfig.stellar.passphrase, 'config.stellar.passphrase');
+    }
+    if (newConfig.contracts?.assetFactory) {
+      validateAddress(newConfig.contracts.assetFactory, 'config.contracts.assetFactory');
+    }
+    if (newConfig.contracts?.complianceRegistry) {
+      validateAddress(newConfig.contracts.complianceRegistry, 'config.contracts.complianceRegistry');
+    }
+    if (newConfig.contracts?.dividendDistributor) {
+      validateAddress(newConfig.contracts.dividendDistributor, 'config.contracts.dividendDistributor');
+    }
+    if (newConfig.contracts?.secondaryMarket) {
+      validateAddress(newConfig.contracts.secondaryMarket, 'config.contracts.secondaryMarket');
+    }
+    if (newConfig.contracts?.custodyValidator) {
+      validateAddress(newConfig.contracts.custodyValidator, 'config.contracts.custodyValidator');
+    }
     this.logger.info('Updating SDK configuration', { newConfig: Object.keys(newConfig) });
     this.config = { ...this.config, ...newConfig };
     
@@ -189,6 +216,17 @@ export class StellarRWASDK {
     dividendHash: string;
     marketHash: string;
   }> {
+    validateAddress(deployer, 'deployer');
+    if (txOptions.fee != null) {
+      if (typeof txOptions.fee !== 'number' || txOptions.fee <= 0) {
+        throw new InvalidParametersError('txOptions.fee must be a positive number');
+      }
+    }
+    if (txOptions.timeout != null) {
+      if (typeof txOptions.timeout !== 'number' || txOptions.timeout <= 0) {
+        throw new InvalidParametersError('txOptions.timeout must be a positive number');
+      }
+    }
     try {
       // Step 1: Deploy the RWA token
       const tokenResult = await this.assetFactory.deployRWAToken(
@@ -355,6 +393,7 @@ function safeBigInt(value: string | number): bigint {
 }
 
 export function formatAmount(amount: string | number, decimals: number = DEFAULT_DECIMALS): string {
+  validateAmount(amount, 'amount');
   const num = safeBigInt(amount);
   const divisor = safeBigInt(10) ** safeBigInt(decimals);
   const whole = num / divisor;
@@ -371,6 +410,9 @@ export function formatAmount(amount: string | number, decimals: number = DEFAULT
 }
 
 export function parseAmount(amount: string, decimals: number = DEFAULT_DECIMALS): string {
+  if (!/^\d+(\.\d+)?$/.test(amount)) {
+    throw new InvalidParametersError('Invalid amount format');
+  }
   const [whole, fractional = ''] = amount.split('.');
   const wholeBigInt = safeBigInt(whole.replace(/[^0-9-]/g, '') || '0');
   const fractionalBigInt = fractional ? safeBigInt(fractional.padEnd(decimals, '0').slice(0, decimals)) : 0n;

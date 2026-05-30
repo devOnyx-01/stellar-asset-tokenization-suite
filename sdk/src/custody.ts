@@ -6,124 +6,125 @@ import { RWASDKError, ContractError, VerificationFailedError, InsufficientBondEr
 import { ErrorCode } from './types';
 import { DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_CUSTODY_EXPIRY_DAYS, DAY_IN_MILLISECONDS } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateContractId } from './validation';
 
 export interface CustodyAttestation {
-    asset_id: string;
+    assetId: string;
     custodian: string;
     location: string;
     condition: string;
     value: string;
     timestamp: number;
-    proof_hash: string;
-    verification_type: string;
-    insurance_status: string;
-    legal_title_hash: string;
-    audit_report_hash: string;
-    multi_sig_signatures: string[];
+    proofHash: string;
+    verificationType: string;
+    insuranceStatus: string;
+    legalTitleHash: string;
+    auditReportHash: string;
+    multiSigSignatures: string[];
     metadata: Record<string, string>;
-    is_valid: boolean;
-    expires_at: number;
+    isValid: boolean;
+    expiresAt: number;
 }
 
 export interface CustodianRegistry {
-    custodian_address: string;
+    custodianAddress: string;
     name: string;
     jurisdiction: string;
-    license_number: string;
-    reputation_score: number;
-    verification_types: string[];
-    is_active: boolean;
-    total_attestations: number;
-    successful_disputes: number;
-    failed_disputes: number;
-    bond_required: string;
-    insurance_provider: string;
+    licenseNumber: string;
+    reputationScore: number;
+    verificationTypes: string[];
+    isActive: boolean;
+    totalAttestations: number;
+    successfulDisputes: number;
+    failedDisputes: number;
+    bondRequired: string;
+    insuranceProvider: string;
 }
 
 export interface DisputeRecord {
-    dispute_id: number;
-    attestation_id: number;
+    disputeId: number;
+    attestationId: number;
     challenger: string;
     custodian: string;
     reason: string;
-    bond_amount: string;
-    evidence_hash: string;
+    bondAmount: string;
+    evidenceHash: string;
     status: string;
-    created_at: number;
-    resolved_at: number;
+    createdAt: number;
+    resolvedAt: number;
     resolution: string;
-    bond_returned: boolean;
-    penalty_applied: boolean;
-    penalty_amount: string;
+    bondReturned: boolean;
+    penaltyApplied: boolean;
+    penaltyAmount: string;
 }
 
 export interface VerificationTypeConfig {
-    verification_type: string;
-    required_documents: string[];
-    verification_frequency: number;
-    multi_sig_required: boolean;
-    sig_threshold: number;
-    insurance_required: boolean;
-    min_insurance_coverage: string;
-    iot_monitoring_required: boolean;
-    satellite_verification: boolean;
-    legal_verification_required: boolean;
+    verificationType: string;
+    requiredDocuments: string[];
+    verificationFrequency: number;
+    multiSigRequired: boolean;
+    sigThreshold: number;
+    insuranceRequired: boolean;
+    minInsuranceCoverage: string;
+    iotMonitoringRequired: boolean;
+    satelliteVerification: boolean;
+    legalVerificationRequired: boolean;
 }
 
 export interface InsuranceIntegration {
     provider: string;
-    policy_number: string;
-    coverage_amount: string;
-    premium_amount: string;
-    valid_until: number;
-    claim_auto_trigger: boolean;
-    last_premium_paid: number;
-    is_active: boolean;
+    policyNumber: string;
+    coverageAmount: string;
+    premiumAmount: string;
+    validUntil: number;
+    claimAutoTrigger: boolean;
+    lastPremiumPaid: number;
+    isActive: boolean;
 }
 
 export interface CustodianProfile {
     name: string;
     jurisdiction: string;
-    license_number: string;
-    verification_types: string[];
-    bond_required: string;
-    insurance_provider: string;
+    licenseNumber: string;
+    verificationTypes: string[];
+    bondRequired: string;
+    insuranceProvider: string;
     credentials: {
-        professional_license: string;
-        insurance_bond: string;
-        background_check: string;
-        financial_audit: string;
+        professionalLicense: string;
+        insuranceBond: string;
+        backgroundCheck: string;
+        financialAudit: string;
     };
 }
 
 export interface ProofData {
     documents: Record<string, string>;
-    iot_data?: {
+    iotData?: {
         temperature: number;
         humidity: number;
         location: { lat: number; lng: number };
-        motion_detected: boolean;
+        motionDetected: boolean;
         timestamp: number;
     };
-    satellite_imagery?: {
+    satelliteImagery?: {
         image_hash: string;
         coordinates: { lat: number; lng: number };
         timestamp: number;
         verification_type: string;
     };
-    legal_verification?: {
-        court_filing_hash: string;
-        verification_status: string;
-        verified_by: string;
+    legalVerification?: {
+        courtFilingHash: string;
+        verificationStatus: string;
+        verifiedBy: string;
         timestamp: number;
     };
-    cryptographic_proofs: {
-        merkle_root: string;
-        merkle_proofs: Record<string, string[]>;
-        zk_proof?: string;
-        photo_hash: string;
-        video_hash: string;
-        notary_signature: string;
+    cryptographicProofs: {
+        merkleRoot: string;
+        merkleProofs: Record<string, string[]>;
+        zkProof?: string;
+        photoHash: string;
+        videoHash: string;
+        notarySignature: string;
     };
 }
 
@@ -138,6 +139,8 @@ export class CustodyClient {
         serverUrl: string = 'https://horizon-testnet.stellar.org',
         networkPassphrase: string = Networks.TESTNET
     ) {
+        validateNonEmptyString(contractId, 'contractId');
+        validateServerUrl(serverUrl, 'serverUrl');
         this.server = new Server(serverUrl);
         this.contractId = contractId;
         this.networkPassphrase = networkPassphrase;
@@ -148,10 +151,13 @@ export class CustodyClient {
         signerKeypair: Keypair,
         profile: CustodianProfile
     ): Promise<Horizon.SubmitTransactionResponse> {
+        validateNonEmptyString(profile.name, 'name');
+        validateNonEmptyString(profile.jurisdiction, 'jurisdiction');
+        validateNonEmptyString(profile.licenseNumber, 'licenseNumber');
         this.logger.info('Registering custodian', { name: profile.name, address: signerKeypair.publicKey() });
         const account = await this.server.loadAccount(signerKeypair.publicKey());
         
-        const verificationTypes = profile.verification_types.map(type => 
+        const verificationTypes = profile.verificationTypes.map(type => 
             new TransactionBuilder(account, { networkPassphrase: this.networkPassphrase, fee: DEFAULT_FEE_RATE.toString() })
                 .addOperation(Operation.invokeContractFunction({
                     contract: this.contractId,
@@ -160,10 +166,10 @@ export class CustodyClient {
                         ...this.encodeAddress(signerKeypair.publicKey()),
                         ...this.encodeString(profile.name),
                         ...this.encodeString(profile.jurisdiction),
-                        ...this.encodeString(profile.license_number),
-                        ...this.encodeStringArray(profile.verification_types),
-                        ...this.encodeString(profile.bond_required),
-                        ...this.encodeString(profile.insurance_provider),
+                        ...this.encodeString(profile.licenseNumber),
+                        ...this.encodeStringArray(profile.verificationTypes),
+                        ...this.encodeString(profile.bondRequired),
+                        ...this.encodeString(profile.insuranceProvider),
                     ]
                 }))
                 .setTimeout(DEFAULT_TIMEOUT_SECONDS)
@@ -181,10 +187,10 @@ export class CustodyClient {
                     ...this.encodeAddress(signerKeypair.publicKey()),
                     ...this.encodeString(profile.name),
                     ...this.encodeString(profile.jurisdiction),
-                    ...this.encodeString(profile.license_number),
-                    ...this.encodeStringArray(profile.verification_types),
-                    ...this.encodeString(profile.bond_required),
-                    ...this.encodeString(profile.insurance_provider),
+                    ...this.encodeString(profile.licenseNumber),
+                    ...this.encodeStringArray(profile.verificationTypes),
+                    ...this.encodeString(profile.bondRequired),
+                    ...this.encodeString(profile.insuranceProvider),
                 ]
             }))
             .setTimeout(DEFAULT_TIMEOUT_SECONDS)
@@ -202,27 +208,28 @@ export class CustodyClient {
         proofData: ProofData,
         signatures: string[]
     ): Promise<Horizon.SubmitTransactionResponse> {
+        validateNonEmptyString(assetId, 'assetId');
         this.logger.info('Submitting attestation', { assetId, custodian: signerKeypair.publicKey() });
         const account = await this.server.loadAccount(signerKeypair.publicKey());
         
         const attestation: CustodyAttestation = {
-            asset_id: assetId,
+            assetId: assetId,
             custodian: signerKeypair.publicKey(),
-            location: proofData.iot_data?.location ? 
-                `${proofData.iot_data.location.lat},${proofData.iot_data.location.lng}` : 
+            location: proofData.iotData?.location ? 
+                `${proofData.iotData.location.lat},${proofData.iotData.location.lng}` : 
                 'unknown',
             condition: 'verified',
             value: '0',
             timestamp: Date.now(),
-            proof_hash: this.calculateProofHash(proofData),
-            verification_type: this.determineVerificationType(proofData),
-            insurance_status: 'insured',
-            legal_title_hash: proofData.legal_verification?.court_filing_hash || '',
-            audit_report_hash: proofData.cryptographic_proofs.merkle_root,
-            multi_sig_signatures: signatures,
+            proofHash: this.calculateProofHash(proofData),
+            verificationType: this.determineVerificationType(proofData),
+            insuranceStatus: 'insured',
+            legalTitleHash: proofData.legalVerification?.courtFilingHash || '',
+            auditReportHash: proofData.cryptographicProofs.merkleRoot,
+            multiSigSignatures: signatures,
             metadata: this.buildMetadata(proofData),
-            is_valid: true,
-            expires_at: Date.now() + (DEFAULT_CUSTODY_EXPIRY_DAYS * DAY_IN_MILLISECONDS),
+            isValid: true,
+            expiresAt: Date.now() + (DEFAULT_CUSTODY_EXPIRY_DAYS * DAY_IN_MILLISECONDS),
         };
 
         const transaction = new TransactionBuilder(account, { 
@@ -244,19 +251,20 @@ export class CustodyClient {
     }
 
     async verifyAssetBacking(tokenAddress: string): Promise<{
-        is_valid: boolean;
-        latest_attestation?: CustodyAttestation;
+        isValid: boolean;
+        latestAttestation?: CustodyAttestation;
         alerts: string[];
-        insurance_status: string;
+        insuranceStatus: string;
     }> {
+        validateAddress(tokenAddress, 'tokenAddress');
         this.logger.info('Verifying asset backing', { tokenAddress });
         try {
             const latestAttestation = await this.getLatestAttestation(tokenAddress);
             const alerts = await this.getCustodyAlerts();
             
             const isValid = latestAttestation ? 
-                latestAttestation.is_valid && 
-                Date.now() < latestAttestation.expires_at : 
+                latestAttestation.isValid && 
+                Date.now() < latestAttestation.expiresAt : 
                 false;
 
             const relevantAlerts = alerts
@@ -269,10 +277,10 @@ export class CustodyClient {
 
             this.logger.info('Asset backing verified', { tokenAddress, isValid });
             return {
-                is_valid: isValid,
-                latest_attestation: latestAttestation,
+                isValid: isValid,
+                latestAttestation: latestAttestation,
                 alerts: relevantAlerts,
-                insurance_status: latestAttestation?.insurance_status || 'unknown'
+                insuranceStatus: latestAttestation?.insuranceStatus || 'unknown'
             };
         } catch (error) {
             throw new ContractError(`Failed to verify asset backing: ${error}`);
@@ -291,6 +299,8 @@ export class CustodyClient {
         bondAmount: string,
         evidenceHash: string
     ): Promise<Horizon.SubmitTransactionResponse> {
+        validateNonEmptyString(reason, 'reason');
+        validateAmount(bondAmount, 'bondAmount');
         this.logger.info('Initiating dispute', { attestationId, challenger: signerKeypair.publicKey(), reason });
         const account = await this.server.loadAccount(signerKeypair.publicKey());
         
@@ -319,6 +329,7 @@ export class CustodyClient {
     }
 
     async getDispute(disputeId: number): Promise<DisputeRecord> {
+        validatePositiveInteger(disputeId, 'disputeId');
         throw new ContractError('Not implemented');
     }
 
@@ -359,18 +370,18 @@ export class CustodyClient {
     private buildMetadata(proofData: ProofData): Record<string, string> {
         const metadata: Record<string, string> = {};
         
-        if (proofData.iot_data) {
+        if (proofData.iotData) {
             metadata.iot_monitored = 'true';
-            metadata.last_iot_reading = proofData.iot_data.timestamp.toString();
+            metadata.last_iot_reading = proofData.iotData.timestamp.toString();
         }
         
-        if (proofData.satellite_imagery) {
+        if (proofData.satelliteImagery) {
             metadata.satellite_verified = 'true';
-            metadata.satellite_timestamp = proofData.satellite_imagery.timestamp.toString();
+            metadata.satellite_timestamp = proofData.satelliteImagery.timestamp.toString();
         }
         
-        if (proofData.legal_verification) {
-            metadata.legal_verified = proofData.legal_verification.verification_status;
+        if (proofData.legalVerification) {
+            metadata.legal_verified = proofData.legalVerification.verificationStatus;
         }
         
         return metadata;

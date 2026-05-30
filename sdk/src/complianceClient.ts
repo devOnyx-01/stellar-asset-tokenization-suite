@@ -21,6 +21,7 @@ import {
 import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError } from './errors';
 import { DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_PAGINATION_LIMIT } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateBoolean, validateRange } from './validation';
 
 export class ComplianceClient {
   private server: Server;
@@ -29,6 +30,8 @@ export class ComplianceClient {
   private logger: Logger;
 
   constructor(config: RWASDKConfig) {
+    validateServerUrl(config.stellar.serverUrl, 'config.stellar.serverUrl');
+    validateAddress(config.contracts.complianceRegistry, 'config.contracts.complianceRegistry');
     this.config = config;
     this.server = new Server(config.stellar.serverUrl);
     this.contract = new Contract(config.contracts.complianceRegistry);
@@ -42,6 +45,20 @@ export class ComplianceClient {
     transferRestrictions: boolean,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(deployer, 'deployer');
+    validateAddress(admin, 'admin');
+    validateBoolean(kycRequired, 'kycRequired');
+    validateBoolean(transferRestrictions, 'transferRestrictions');
+    if (txOptions.fee != null) {
+      if (typeof txOptions.fee !== 'number' || txOptions.fee <= 0) {
+        throw new InvalidParametersError('txOptions.fee must be a positive number');
+      }
+    }
+    if (txOptions.timeout != null) {
+      if (typeof txOptions.timeout !== 'number' || txOptions.timeout <= 0) {
+        throw new InvalidParametersError('txOptions.timeout must be a positive number');
+      }
+    }
     this.logger.info('Initializing compliance registry', { admin: admin.toString(), kycRequired, transferRestrictions });
     try {
       const account = await this.server.getAccount(deployer.toString());
@@ -81,6 +98,8 @@ export class ComplianceClient {
     kycStatus: KYCStatus,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(user, 'user');
     this.logger.info('Updating KYC status', { user: user.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -116,6 +135,7 @@ export class ComplianceClient {
   }
 
   async getKYCStatus(user: Address): Promise<KYCStatus> {
+    validateAddress(user, 'user');
     try {
       const result = await this.contract.call('get_kyc_status', new Address(user));
       const kycStatus = this.convertScValToKYCStatus(result.result);
@@ -131,6 +151,9 @@ export class ComplianceClient {
     reason: string,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(address, 'address');
+    validateNonEmptyString(reason, 'reason');
     this.logger.info('Adding address to blacklist', { address: address.toString(), reason });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -168,6 +191,8 @@ export class ComplianceClient {
     address: Address,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(address, 'address');
     this.logger.info('Removing address from blacklist', { address: address.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -201,6 +226,8 @@ export class ComplianceClient {
     address: Address,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(address, 'address');
     this.logger.info('Adding address to whitelist', { address: address.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -234,6 +261,8 @@ export class ComplianceClient {
     address: Address,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(address, 'address');
     this.logger.info('Removing address from whitelist', { address: address.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -267,6 +296,9 @@ export class ComplianceClient {
     to: Address,
     amount: string
   ): Promise<boolean> {
+    validateAddress(from, 'from');
+    validateAddress(to, 'to');
+    validateAmount(amount, 'amount');
     this.logger.info('Checking compliance', { from: from.toString(), to: to.toString() });
     try {
       const result = await this.contract.call(
@@ -307,6 +339,8 @@ export class ComplianceClient {
     limits: TransferLimits,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(user, 'user');
     this.logger.info('Setting transfer limits', { user: user.toString() });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -431,6 +465,10 @@ export class ComplianceClient {
     updates: Array<{ user: Address; kycStatus: KYCStatus }>,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+      throw new InvalidParametersError('updates must be a non-empty array');
+    }
     this.logger.info('Batch updating KYC status', { count: updates.length });
     try {
       const account = await this.server.getAccount(admin.toString());
