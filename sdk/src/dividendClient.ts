@@ -21,6 +21,7 @@ import {
 import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, ContractError } from './errors';
 import { DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_PAGINATION_LIMIT } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateRange } from './validation';
 
 export class DividendClient {
   private server: Server;
@@ -29,6 +30,8 @@ export class DividendClient {
   private logger: Logger;
 
   constructor(config: RWASDKConfig) {
+    validateServerUrl(config.stellar.serverUrl, 'config.stellar.serverUrl');
+    validateAddress(config.contracts.dividendDistributor, 'config.contracts.dividendDistributor');
     this.config = config;
     this.server = new Server(config.stellar.serverUrl);
     this.contract = new Contract(config.contracts.dividendDistributor);
@@ -40,6 +43,12 @@ export class DividendClient {
     options: DividendOptions,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; distributionId: number }> {
+    validateAddress(admin, 'admin');
+    validateAddress(options.tokenAddress, 'options.tokenAddress');
+    validateAmount(options.amount, 'options.amount');
+    if (!options.claimDeadline || !(options.claimDeadline instanceof Date) || options.claimDeadline.getTime() <= Date.now()) {
+      throw new InvalidParametersError('options.claimDeadline must be a Date in the future');
+    }
     this.logger.info('Creating dividend distribution', { token: options.tokenAddress.toString(), amount: options.amount });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -87,6 +96,8 @@ export class DividendClient {
     distributionId: number,
     txOptions: TransactionOptions = {}
   ): Promise<{ transactionHash: string; amountClaimed: string }> {
+    validateAddress(claimer, 'claimer');
+    validatePositiveInteger(distributionId, 'distributionId');
     this.logger.info('Claiming dividend', { claimer: claimer.toString(), distributionId });
     try {
       const account = await this.server.getAccount(claimer.toString());
@@ -225,6 +236,10 @@ export class DividendClient {
     config: DividendConfig,
     txOptions: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    if (config.feeRate != null) {
+      validateRange(config.feeRate, 0, 10000, 'config.feeRate');
+    }
     this.logger.info('Updating dividend config');
     try {
       const account = await this.server.getAccount(admin.toString());

@@ -19,6 +19,7 @@ import {
 import { RWASDKError as RWASDKErrorClass, contractErrorToCode, TimeoutError, InsufficientBalanceError, UnauthorizedError, TransactionError, ContractError } from './errors';
 import { DEFAULT_DECIMALS, DEFAULT_FEE_RATE, DEFAULT_TIMEOUT_SECONDS, DEFAULT_PAGINATION_LIMIT } from './constants';
 import { createLogger, Logger } from './logger';
+import { validateAddress, validateAmount, validateNonEmptyString, validatePositiveInteger, validateServerUrl, validateRange } from './validation';
 
 export class TokenClient {
   private server: Server;
@@ -28,6 +29,7 @@ export class TokenClient {
   private logger: Logger;
 
   constructor(config: RWASDKConfig, tokenAddress: Address) {
+    validateAddress(tokenAddress, 'tokenAddress');
     this.config = config;
     this.server = new Server(config.stellar.serverUrl);
     this.tokenAddress = tokenAddress;
@@ -61,6 +63,19 @@ export class TokenClient {
     amount: string,
     options: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(from, 'from');
+    validateAddress(to, 'to');
+    validateAmount(amount, 'amount');
+    if (options.fee != null) {
+      if (typeof options.fee !== 'number' || options.fee <= 0) {
+        throw new InvalidParametersError('options.fee must be a positive number');
+      }
+    }
+    if (options.timeout != null) {
+      if (typeof options.timeout !== 'number' || options.timeout <= 0) {
+        throw new InvalidParametersError('options.timeout must be a positive number');
+      }
+    }
     this.logger.info('Transferring tokens', { from: from.toString(), to: to.toString(), amount });
     try {
       const account = await this.server.getAccount(from.toString());
@@ -100,6 +115,9 @@ export class TokenClient {
     amount: string,
     options: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(admin, 'admin');
+    validateAddress(to, 'to');
+    validateAmount(amount, 'amount');
     this.logger.info('Minting tokens', { to: to.toString(), amount });
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -137,6 +155,8 @@ export class TokenClient {
     amount: string,
     options: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(owner, 'owner');
+    validateAmount(amount, 'amount');
     this.logger.info('Burning tokens', { owner: owner.toString(), amount });
     try {
       const account = await this.server.getAccount(owner.toString());
@@ -175,6 +195,9 @@ export class TokenClient {
     lockPeriod: number,
     options: TransactionOptions = {}
   ): Promise<string> {
+    validateAddress(owner, 'owner');
+    validateAmount(amount, 'amount');
+    validatePositiveInteger(lockPeriod, 'lockPeriod');
     this.logger.info('Locking tokens', { owner: owner.toString(), amount, lockPeriod });
     try {
       const account = await this.server.getAccount(owner.toString());
@@ -246,6 +269,7 @@ export class TokenClient {
   }
 
   async pause(admin: Address, options: TransactionOptions = {}): Promise<string> {
+    validateAddress(admin, 'admin');
     this.logger.info('Pausing token transfers');
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -275,6 +299,7 @@ export class TokenClient {
   }
 
   async unpause(admin: Address, options: TransactionOptions = {}): Promise<string> {
+    validateAddress(admin, 'admin');
     this.logger.info('Unpausing token transfers');
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -304,6 +329,7 @@ export class TokenClient {
   }
 
   async freeze(admin: Address, options: TransactionOptions = {}): Promise<string> {
+    validateAddress(admin, 'admin');
     this.logger.info('Freezing token');
     try {
       const account = await this.server.getAccount(admin.toString());
@@ -333,6 +359,7 @@ export class TokenClient {
   }
 
   async unfreeze(admin: Address, options: TransactionOptions = {}): Promise<string> {
+    validateAddress(admin, 'admin');
     this.logger.info('Unfreezing token');
     try {
       const account = await this.server.getAccount(admin.toString());
